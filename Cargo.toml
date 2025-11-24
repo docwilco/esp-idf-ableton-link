@@ -6,6 +6,4 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-
-[build-dependencies]
-cc = "1.0"
+esp-idf-svc = "0.51"
