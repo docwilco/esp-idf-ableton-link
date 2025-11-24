@@ -1,0 +1,11 @@
+[package]
+name = "ableton-link-sys"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+
+[build-dependencies]
+cc = "1.0"
