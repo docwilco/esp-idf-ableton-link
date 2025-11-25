@@ -1,9 +1,18 @@
 [package]
-name = "ableton-link-sys"
+name = "esp-idf-ableton-link"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "Safe Rust wrapper for Ableton Link on ESP32 via ESP-IDF"
+keywords = ["esp32", "esp-idf", "ableton", "link", "music"]
+categories = ["embedded", "hardware-support"]
 
 [dependencies]
-esp-idf-svc = "0.51"
+esp-idf-sys = "0.36"
+log = "0.4"
+
+[features]
+default = []
+std = []
+
