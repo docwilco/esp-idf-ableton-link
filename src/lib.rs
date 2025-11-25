@@ -39,10 +39,14 @@ use core::marker::PhantomData;
 
 // Re-export the raw bindings for advanced users who need direct access
 pub mod sys {
+    #[allow(clippy::wildcard_imports)]
     pub use esp_idf_sys::ableton_link::*;
 }
 
-use esp_idf_sys::ableton_link::*;
+use esp_idf_sys::ableton_link::{
+    link_clock_micros, link_create, link_destroy, link_enable, link_get_beat_at_time,
+    link_get_phase_at_time, link_get_tempo, link_is_enabled, link_set_tempo, LinkInstance,
+};
 
 /// Error type for Link operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,7 +75,7 @@ impl std::error::Error for LinkError {}
 /// # Thread Safety
 ///
 /// `Link` is `Send` but not `Sync`. The underlying ESP32 implementation uses
-/// FreeRTOS primitives that are thread-safe, but the API is designed for
+/// `FreeRTOS` primitives that are thread-safe, but the API is designed for
 /// single-threaded access to a given instance.
 ///
 /// # Example
@@ -112,6 +116,11 @@ impl Link {
     /// Returns `Ok(Link)` on success, or `Err(LinkError::AllocationFailed)` if
     /// memory allocation fails.
     ///
+    /// # Errors
+    ///
+    /// Returns [`LinkError::AllocationFailed`] if the underlying C++ Link instance
+    /// could not be allocated (typically due to memory exhaustion).
+    ///
     /// # Example
     ///
     /// ```no_run
@@ -127,7 +136,7 @@ impl Link {
         if handle.is_null() {
             Err(LinkError::AllocationFailed)
         } else {
-            log::debug!("Created Link instance at {:p} with {} BPM", handle, initial_bpm);
+            log::debug!("Created Link instance at {handle:p} with {initial_bpm} BPM");
             Ok(Self {
                 handle,
                 _marker: PhantomData,
@@ -158,7 +167,7 @@ impl Link {
         // Safety: handle is valid (checked in new()) and link_enable
         // handles null checks internally.
         unsafe { link_enable(self.handle, enable) }
-        log::debug!("Link enabled: {}", enable);
+        log::debug!("Link enabled: {enable}");
     }
 
     /// Check if Link is currently enabled.
@@ -207,7 +216,7 @@ impl Link {
     pub fn set_tempo(&mut self, bpm: f64) {
         // Safety: handle is valid and link_set_tempo is safe to call.
         unsafe { link_set_tempo(self.handle, bpm) }
-        log::debug!("Set tempo to {} BPM", bpm);
+        log::debug!("Set tempo to {bpm} BPM");
     }
 
     /// Get the beat value at a given time.
