@@ -16,3 +16,8 @@ log = "0.4"
 default = []
 std = []
 
+[package.metadata.esp-idf-sys]
+extra_components = [
+    { component_dirs = ["../esp-idf-ableton-link"], bindings_header = "../esp-idf-ableton-link/include/link_wrapper.h", bindings_module = "ableton_link" },
+    { remote_component = { name = "espressif/asio", version = "*" } }
+]
