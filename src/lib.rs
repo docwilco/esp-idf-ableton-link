@@ -39,14 +39,11 @@ use core::marker::PhantomData;
 
 // Re-export the raw bindings for advanced users who need direct access
 pub mod sys {
+    // Allow wildcard imports for the sys module since there is nothing else in
+    // this module.
     #[allow(clippy::wildcard_imports)]
     pub use esp_idf_sys::ableton_link::*;
 }
-
-use esp_idf_sys::ableton_link::{
-    link_clock_micros, link_create, link_destroy, link_enable, link_get_beat_at_time,
-    link_get_phase_at_time, link_get_tempo, link_is_enabled, link_set_tempo, LinkInstance,
-};
 
 /// Error type for Link operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,15 +89,17 @@ impl std::error::Error for LinkError {}
 /// let phase = link.phase_at_time(now, 4.0);
 /// ```
 pub struct Link {
-    handle: *mut LinkInstance,
+    handle: *mut sys::LinkInstance,
     // PhantomData to prevent auto-impl of Send/Sync
     // We explicitly impl Send after verifying thread safety
     _marker: PhantomData<*mut ()>,
 }
 
-// Safety: Link operations go through the C++ wrapper which uses
-// proper synchronization for the ESP32 platform (FreeRTOS primitives).
-// The Link instance can be safely moved between threads.
+// Safety: We hold a pointer to a heap-allocated LinkInstance, not the C++ Link
+// object directly. All Link methods we use (enable, isEnabled, captureAppSessionState,
+// commitAppSessionState) are documented as "Thread-safe: yes" in Link.hpp (lines 93-161).
+// Moving the Rust wrapper between threads is safe because the underlying C++ operations
+// use proper synchronization internally.
 unsafe impl Send for Link {}
 
 impl Link {
@@ -131,7 +130,7 @@ impl Link {
     pub fn new(initial_bpm: f64) -> Result<Self, LinkError> {
         // Safety: link_create is safe to call with any f64 value.
         // It returns null on allocation failure.
-        let handle = unsafe { link_create(initial_bpm) };
+        let handle = unsafe { sys::link_create(initial_bpm) };
 
         if handle.is_null() {
             Err(LinkError::AllocationFailed)
@@ -144,14 +143,10 @@ impl Link {
         }
     }
 
-    /// Enable or disable Link synchronization.
+    /// Enable Link synchronization.
     ///
     /// When enabled, Link will discover and synchronize with other Link-enabled
     /// applications on the local network.
-    ///
-    /// # Arguments
-    ///
-    /// * `enable` - `true` to enable Link, `false` to disable it.
     ///
     /// # Example
     ///
@@ -159,15 +154,25 @@ impl Link {
     /// use esp_idf_ableton_link::Link;
     ///
     /// let mut link = Link::new(120.0).unwrap();
-    /// link.enable(true);  // Start synchronizing
+    /// link.enable();  // Start synchronizing
     /// // ... later ...
-    /// link.enable(false); // Stop synchronizing
+    /// link.disable(); // Stop synchronizing
     /// ```
-    pub fn enable(&mut self, enable: bool) {
+    pub fn enable(&mut self) {
         // Safety: handle is valid (checked in new()) and link_enable
         // handles null checks internally.
-        unsafe { link_enable(self.handle, enable) }
-        log::debug!("Link enabled: {enable}");
+        unsafe { sys::link_enable(self.handle, true) }
+        log::debug!("Link enabled");
+    }
+
+    /// Disable Link synchronization.
+    ///
+    /// See also [`enable`](Self::enable).
+    pub fn disable(&mut self) {
+        // Safety: handle is valid (checked in new()) and link_enable
+        // handles null checks internally.
+        unsafe { sys::link_enable(self.handle, false) }
+        log::debug!("Link disabled");
     }
 
     /// Check if Link is currently enabled.
@@ -178,7 +183,7 @@ impl Link {
     #[must_use]
     pub fn is_enabled(&self) -> bool {
         // Safety: handle is valid and link_is_enabled is safe to call.
-        unsafe { link_is_enabled(self.handle) }
+        unsafe { sys::link_is_enabled(self.handle) }
     }
 
     /// Get the current tempo in beats per minute (BPM).
@@ -191,9 +196,9 @@ impl Link {
     ///
     /// The current tempo in BPM.
     #[must_use]
-    pub fn tempo(&self) -> f64 {
+    pub fn get_tempo(&self) -> f64 {
         // Safety: handle is valid and link_get_tempo is safe to call.
-        unsafe { link_get_tempo(self.handle) }
+        unsafe { sys::link_get_tempo(self.handle) }
     }
 
     /// Set the tempo in beats per minute (BPM).
@@ -214,8 +219,8 @@ impl Link {
     /// link.set_tempo(140.0); // Change tempo to 140 BPM
     /// ```
     pub fn set_tempo(&mut self, bpm: f64) {
-        // Safety: handle is valid and link_set_tempo is safe to call.
-        unsafe { link_set_tempo(self.handle, bpm) }
+        // Safety: handle is valid and sys::link_set_tempo is safe to call.
+        unsafe { sys::link_set_tempo(self.handle, bpm) }
         log::debug!("Set tempo to {bpm} BPM");
     }
 
@@ -247,8 +252,8 @@ impl Link {
     /// ```
     #[must_use]
     pub fn beat_at_time(&self, micros: i64, quantum: f64) -> f64 {
-        // Safety: handle is valid and link_get_beat_at_time is safe to call.
-        unsafe { link_get_beat_at_time(self.handle, micros, quantum) }
+        // Safety: handle is valid and sys::link_get_beat_at_time is safe to call.
+        unsafe { sys::link_get_beat_at_time(self.handle, micros, quantum) }
     }
 
     /// Get the phase (position within a cycle) at a given time.
@@ -282,8 +287,8 @@ impl Link {
     /// ```
     #[must_use]
     pub fn phase_at_time(&self, micros: i64, quantum: f64) -> f64 {
-        // Safety: handle is valid and link_get_phase_at_time is safe to call.
-        unsafe { link_get_phase_at_time(self.handle, micros, quantum) }
+        // Safety: handle is valid and sys::link_get_phase_at_time is safe to call.
+        unsafe { sys::link_get_phase_at_time(self.handle, micros, quantum) }
     }
 
     /// Get the current Link clock time in microseconds.
@@ -306,8 +311,8 @@ impl Link {
     /// ```
     #[must_use]
     pub fn clock_micros() -> i64 {
-        // Safety: link_clock_micros has no preconditions and is always safe to call.
-        unsafe { link_clock_micros() }
+        // Safety: sys::link_clock_micros has no preconditions and is always safe to call.
+        unsafe { sys::link_clock_micros() }
     }
 }
 
@@ -317,6 +322,6 @@ impl Drop for Link {
         // Safety: handle is valid (checked in new()) and link_destroy
         // handles null checks internally. After this call, handle is invalid
         // but that's fine since we're being dropped.
-        unsafe { link_destroy(self.handle) }
+        unsafe { sys::link_destroy(self.handle) }
     }
 }
