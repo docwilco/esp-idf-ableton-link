@@ -6,17 +6,13 @@ fn main() {
     println!("cargo:rerun-if-changed=Kconfig");
 
     // Track all Link headers
-    for entry in glob::glob("ableton-link/include/**/*.hpp").unwrap() {
-        if let Ok(path) = entry {
-            println!("cargo:rerun-if-changed={}", path.display());
-        }
+    for entry in glob::glob("ableton-link/include/**/*.hpp").unwrap().flatten() {
+        println!("cargo:rerun-if-changed={}", entry.display());
     }
 
     // Track cmake_include files
-    for entry in glob::glob("ableton-link/cmake_include/**/*.cmake").unwrap() {
-        if let Ok(path) = entry {
-            println!("cargo:rerun-if-changed={}", path.display());
-        }
+    for entry in glob::glob("ableton-link/cmake_include/**/*.cmake").unwrap().flatten() {
+        println!("cargo:rerun-if-changed={}", entry.display());
     }
 
     // Track extensions (abl_link C wrapper)
@@ -28,17 +24,13 @@ fn main() {
         "ableton-link/extensions/**/*.cmake",
         "ableton-link/extensions/**/CMakeLists.txt",
     ] {
-        for entry in glob::glob(pattern).unwrap() {
-            if let Ok(path) = entry {
-                println!("cargo:rerun-if-changed={}", path.display());
-            }
+        for entry in glob::glob(pattern).unwrap().flatten() {
+            println!("cargo:rerun-if-changed={}", entry.display());
         }
     }
 
     // Track Link's own CMakeLists.txt files
-    for entry in glob::glob("ableton-link/**/CMakeLists.txt").unwrap() {
-        if let Ok(path) = entry {
-            println!("cargo:rerun-if-changed={}", path.display());
-        }
+    for entry in glob::glob("ableton-link/**/CMakeLists.txt").unwrap().flatten() {
+        println!("cargo:rerun-if-changed={}", entry.display());
     }
 }

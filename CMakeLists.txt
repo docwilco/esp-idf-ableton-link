@@ -1,6 +1,6 @@
 idf_component_register(
-    SRCS "src/link_wrapper.cpp"
-    INCLUDE_DIRS "include"
+    SRCS "ableton-link/extensions/abl_link/src/abl_link.cpp"
+    INCLUDE_DIRS "ableton-link/extensions/abl_link/include"
     REQUIRES asio
     PRIV_REQUIRES sock_utils esp_timer esp_netif
 )
@@ -9,7 +9,7 @@ idf_component_register(
 # Using PRIVATE since only our wrapper needs C++11, not consumers
 target_compile_features(${COMPONENT_LIB} PRIVATE cxx_generalized_initializers)
 
-# Ableton Link include directories (internal, not exposed to consumers)
+# Ableton Link include directories (internal, abl_link.cpp needs Link.hpp)
 target_include_directories(${COMPONENT_LIB} PRIVATE
     "ableton-link/include"
 )

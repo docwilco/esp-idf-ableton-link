@@ -1,7 +1,8 @@
 //! Safe Rust wrapper for Ableton Link on ESP32 via ESP-IDF.
 //!
-//! This crate provides a safe Rust API for [Ableton Link](https://www.ableton.com/en/link/),
-//! enabling musical applications to synchronize tempo and beat phase over a local network.
+//! This crate provides a safe Rust API for [Ableton
+//! Link](https://www.ableton.com/en/link/), enabling musical applications to
+//! synchronize tempo and beat phase over a local network.
 //!
 //! # Example
 //!
@@ -20,15 +21,16 @@
 //! log::info!("Current tempo: {} BPM", tempo);
 //!
 //! // Get the current beat position
-//! let now = Link::clock_micros();
+//! let now = link.clock_micros();
 //! let beat = state.beat_at_time(now, 4.0); // 4 beats per bar
 //! log::info!("Current beat: {}", beat);
 //! ```
 //!
 //! # ESP-IDF Component
 //!
-//! This crate also serves as an ESP-IDF component. The C++ wrapper and CMakeLists.txt
-//! are included in the crate directory and should be referenced in your firmware's
+//! This crate also serves as an ESP-IDF component. The official `abl_link` C
+//! wrapper from Ableton Link is used, and CMakeLists.txt is included in the
+//! crate directory and should be referenced in your firmware's
 //! `[package.metadata.esp-idf-sys].extra_components` configuration.
 
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -69,9 +71,9 @@ impl std::error::Error for LinkError {}
 
 /// A safe wrapper around an Ableton Link instance.
 ///
-/// Link enables musical applications to synchronize tempo and beat phase
-/// over a local network. Multiple Link-enabled applications can play in time
-/// without requiring any configuration.
+/// Link enables musical applications to synchronize tempo and beat phase over a
+/// local network. Multiple Link-enabled applications can play in time without
+/// requiring any configuration.
 ///
 /// # Thread Safety
 ///
@@ -89,7 +91,7 @@ impl std::error::Error for LinkError {}
 ///
 /// // Capture session state for reading/modifying
 /// let mut state = link.capture_app_session_state().unwrap();
-/// let now = Link::clock_micros();
+/// let now = link.clock_micros();
 /// let beat = state.beat_at_time(now, 4.0);
 /// let phase = state.phase_at_time(now, 4.0);
 ///
@@ -98,17 +100,18 @@ impl std::error::Error for LinkError {}
 /// link.commit_app_session_state(&state);
 /// ```
 pub struct Link {
-    handle: *mut sys::LinkInstance,
-    // PhantomData to prevent auto-impl of Send/Sync
-    // We explicitly impl Send after verifying thread safety
+    handle: sys::abl_link,
+    // PhantomData to prevent auto-impl of Send/Sync We explicitly impl Send
+    // after verifying thread safety
     _marker: PhantomData<*mut ()>,
 }
 
-// Safety: We hold a pointer to a heap-allocated LinkInstance, not the C++ Link
-// object directly. All Link methods we use (enable, isEnabled, captureAppSessionState,
-// commitAppSessionState) are documented as "Thread-safe: yes" in Link.hpp (lines 93-161).
-// Moving the Rust wrapper between threads is safe because the underlying C++ operations
-// use proper synchronization internally.
+// Safety: We hold an abl_link struct containing a pointer to a heap-allocated
+// C++ Link object. All Link methods we use (enable, isEnabled,
+// captureAppSessionState, commitAppSessionState) are documented as
+// "Thread-safe: yes" in abl_link.h. Moving the Rust wrapper between threads is
+// safe because the underlying C++ operations use proper synchronization
+// internally.
 unsafe impl Send for Link {}
 
 impl Link {
@@ -116,8 +119,8 @@ impl Link {
     ///
     /// # Arguments
     ///
-    /// * `initial_bpm` - The initial tempo in beats per minute (BPM).
-    ///   Typical values range from 20.0 to 999.0.
+    /// * `initial_bpm` - The initial tempo in beats per minute (BPM). Typical
+    ///   values range from 20.0 to 999.0.
     ///
     /// # Returns
     ///
@@ -126,8 +129,8 @@ impl Link {
     ///
     /// # Errors
     ///
-    /// Returns [`LinkError::AllocationFailed`] if the underlying C++ Link instance
-    /// could not be allocated (typically due to memory exhaustion).
+    /// Returns [`LinkError::AllocationFailed`] if the underlying C++ Link
+    /// instance could not be allocated (typically due to memory exhaustion).
     ///
     /// # Example
     ///
@@ -137,14 +140,17 @@ impl Link {
     /// let link = Link::new(120.0).expect("Failed to create Link");
     /// ```
     pub fn new(initial_bpm: f64) -> Result<Self, LinkError> {
-        // Safety: link_create is safe to call with any f64 value.
-        // It returns null on allocation failure.
-        let handle = unsafe { sys::link_create(initial_bpm) };
+        // Safety: abl_link_create is safe to call with any f64 value. It
+        // allocates a new Link instance and returns a struct with impl pointer.
+        let handle = unsafe { sys::abl_link_create(initial_bpm) };
 
-        if handle.is_null() {
+        if handle.impl_.is_null() {
             Err(LinkError::AllocationFailed)
         } else {
-            log::debug!("Created Link instance at {handle:p} with {initial_bpm} BPM");
+            log::debug!(
+                "Created Link instance at {:p} with {initial_bpm} BPM",
+                handle.impl_
+            );
             Ok(Self {
                 handle,
                 _marker: PhantomData,
@@ -168,9 +174,8 @@ impl Link {
     /// link.disable(); // Stop synchronizing
     /// ```
     pub fn enable(&mut self) {
-        // Safety: handle is valid (checked in new()) and link_enable
-        // handles null checks internally.
-        unsafe { sys::link_enable(self.handle, true) }
+        // Safety: handle is valid (checked in new()).
+        unsafe { sys::abl_link_enable(self.handle, true) }
         log::debug!("Link enabled");
     }
 
@@ -178,9 +183,8 @@ impl Link {
     ///
     /// See also [`enable`](Self::enable).
     pub fn disable(&mut self) {
-        // Safety: handle is valid (checked in new()) and link_enable
-        // handles null checks internally.
-        unsafe { sys::link_enable(self.handle, false) }
+        // Safety: handle is valid (checked in new()).
+        unsafe { sys::abl_link_enable(self.handle, false) }
         log::debug!("Link disabled");
     }
 
@@ -191,8 +195,8 @@ impl Link {
     /// `true` if Link is enabled and synchronizing, `false` otherwise.
     #[must_use]
     pub fn is_enabled(&self) -> bool {
-        // Safety: handle is valid and link_is_enabled is safe to call.
-        unsafe { sys::link_is_enabled(self.handle) }
+        // Safety: handle is valid.
+        unsafe { sys::abl_link_is_enabled(self.handle) }
     }
 
     /// Get the number of peers currently connected in the Link session.
@@ -202,9 +206,46 @@ impl Link {
     /// The number of other Link-enabled applications connected to this session.
     /// Returns 0 if no peers are connected (solo mode).
     #[must_use]
-    pub fn num_peers(&self) -> usize {
-        // Safety: handle is valid and link_num_peers is safe to call.
-        unsafe { sys::link_num_peers(self.handle) }
+    pub fn num_peers(&self) -> u64 {
+        // Safety: handle is valid.
+        unsafe { sys::abl_link_num_peers(self.handle) }
+    }
+
+    /// Check if start/stop synchronization is enabled.
+    ///
+    /// When enabled, transport start/stop state is shared with other peers
+    /// in the session.
+    ///
+    /// # Returns
+    ///
+    /// `true` if start/stop sync is enabled, `false` otherwise.
+    #[must_use]
+    pub fn is_start_stop_sync_enabled(&self) -> bool {
+        // Safety: handle is valid.
+        unsafe { sys::abl_link_is_start_stop_sync_enabled(self.handle) }
+    }
+
+    /// Enable or disable start/stop synchronization.
+    ///
+    /// When enabled, transport start/stop state is shared with other peers
+    /// in the session. This allows multiple applications to start and stop
+    /// playback together.
+    ///
+    /// # Arguments
+    ///
+    /// * `enabled` - `true` to enable start/stop sync, `false` to disable.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use esp_idf_ableton_link::Link;
+    ///
+    /// let mut link = Link::new(120.0).unwrap();
+    /// link.enable_start_stop_sync(true);
+    /// ```
+    pub fn enable_start_stop_sync(&mut self, enabled: bool) {
+        // Safety: handle is valid.
+        unsafe { sys::abl_link_enable_start_stop_sync(self.handle, enabled) }
     }
 
     /// Capture the current Link session state from an application thread.
@@ -231,17 +272,23 @@ impl Link {
     /// let tempo = state.tempo();
     /// ```
     pub fn capture_app_session_state(&self) -> Result<SessionState, LinkError> {
-        // Safety: handle is valid and link_capture_app_session_state is safe to call.
-        let handle = unsafe { sys::link_capture_app_session_state(self.handle) };
+        // Safety: abl_link_create_session_state allocates a new session state.
+        let session_state = unsafe { sys::abl_link_create_session_state() };
 
-        if handle.is_null() {
-            Err(LinkError::SessionStateCaptureError)
-        } else {
-            Ok(SessionState { handle })
+        if session_state.impl_.is_null() {
+            return Err(LinkError::SessionStateCaptureError);
         }
+
+        // Safety: Both handles are valid.
+        unsafe { sys::abl_link_capture_app_session_state(self.handle, session_state) };
+
+        Ok(SessionState {
+            handle: session_state,
+        })
     }
 
-    /// Commit the given session state to the Link session from an application thread.
+    /// Commit the given session state to the Link session from an application
+    /// thread.
     ///
     /// The given session state will replace the current Link session state.
     /// Modifications will be communicated to other peers in the session.
@@ -253,13 +300,13 @@ impl Link {
     ///
     /// let mut link = Link::new(120.0).unwrap();
     /// let mut state = link.capture_app_session_state().unwrap();
-    /// let now = Link::clock_micros();
+    /// let now = link.clock_micros();
     /// state.set_tempo(140.0, now);
     /// link.commit_app_session_state(&state);
     /// ```
     pub fn commit_app_session_state(&mut self, state: &SessionState) {
         // Safety: both handles are valid.
-        unsafe { sys::link_commit_app_session_state(self.handle, state.handle) }
+        unsafe { sys::abl_link_commit_app_session_state(self.handle, state.handle) }
     }
 
     /// Get the current Link clock time in microseconds.
@@ -277,37 +324,39 @@ impl Link {
     /// ```no_run
     /// use esp_idf_ableton_link::Link;
     ///
-    /// let now = Link::clock_micros();
+    /// let link = Link::new(120.0).unwrap();
+    /// let now = link.clock_micros();
     /// log::info!("Current Link clock: {} µs", now);
     /// ```
     #[must_use]
-    pub fn clock_micros() -> i64 {
-        // Safety: sys::link_clock_micros has no preconditions and is always safe to call.
-        unsafe { sys::link_clock_micros() }
+    pub fn clock_micros(&self) -> i64 {
+        // Safety: handle is valid.
+        unsafe { sys::abl_link_clock_micros(self.handle) }
     }
 }
 
 impl Drop for Link {
     fn drop(&mut self) {
-        log::debug!("Destroying Link instance at {:p}", self.handle);
-        // Safety: handle is valid (checked in new()) and link_destroy
-        // handles null checks internally. After this call, handle is invalid
-        // but that's fine since we're being dropped.
-        unsafe { sys::link_destroy(self.handle) }
+        log::debug!("Destroying Link instance at {:p}", self.handle.impl_);
+        // Safety: handle is valid (checked in new()). After this call, handle
+        // is invalid but that's fine since we're being dropped.
+        unsafe { sys::abl_link_destroy(self.handle) }
     }
 }
 
 /// A snapshot of the Link session state.
 ///
 /// This represents a point-in-time view of the Link session's timeline and
-/// transport state. It provides methods to read and modify tempo, beat position,
-/// and transport (play/stop) state.
+/// transport state. It provides methods to read and modify tempo, beat
+/// position, and transport (play/stop) state.
 ///
 /// # Usage
 ///
 /// 1. Capture a session state with [`Link::capture_app_session_state`]
-/// 2. Read values using [`tempo`](Self::tempo), [`beat_at_time`](Self::beat_at_time), etc.
-/// 3. Optionally modify using [`set_tempo`](Self::set_tempo), [`request_beat_at_time`](Self::request_beat_at_time), etc.
+/// 2. Read values using [`tempo`](Self::tempo),
+///    [`beat_at_time`](Self::beat_at_time), etc.
+/// 3. Optionally modify using [`set_tempo`](Self::set_tempo),
+///    [`request_beat_at_time`](Self::request_beat_at_time), etc.
 /// 4. Commit changes with [`Link::commit_app_session_state`]
 ///
 /// # Important
@@ -315,7 +364,7 @@ impl Drop for Link {
 /// This is a snapshot and will become stale. Don't store it for later use.
 /// Capture a fresh state when you need current values.
 pub struct SessionState {
-    handle: *mut sys::SessionStateInstance,
+    handle: sys::abl_link_session_state,
 }
 
 // Safety: SessionState is an independent snapshot with no references to Link.
@@ -325,13 +374,13 @@ unsafe impl Send for SessionState {}
 impl SessionState {
     /// Get the tempo of the timeline in Beats Per Minute.
     ///
-    /// This is a stable value appropriate for display to the user.
-    /// Beat time progress may not match this tempo exactly due to
-    /// clock drift compensation.
+    /// This is a stable value appropriate for display to the user. Beat time
+    /// progress may not match this tempo exactly due to clock drift
+    /// compensation.
     #[must_use]
     pub fn tempo(&self) -> f64 {
         // Safety: handle is valid.
-        unsafe { sys::session_state_tempo(self.handle) }
+        unsafe { sys::abl_link_tempo(self.handle) }
     }
 
     /// Set the timeline tempo to the given BPM value.
@@ -342,7 +391,7 @@ impl SessionState {
     /// * `at_time_micros` - The time at which the tempo change takes effect.
     pub fn set_tempo(&mut self, bpm: f64, at_time_micros: i64) {
         // Safety: handle is valid.
-        unsafe { sys::session_state_set_tempo(self.handle, bpm, at_time_micros) }
+        unsafe { sys::abl_link_set_tempo(self.handle, bpm, at_time_micros) }
     }
 
     /// Get the beat value at the given time for the given quantum.
@@ -357,7 +406,7 @@ impl SessionState {
     #[must_use]
     pub fn beat_at_time(&self, micros: i64, quantum: f64) -> f64 {
         // Safety: handle is valid.
-        unsafe { sys::session_state_beat_at_time(self.handle, micros, quantum) }
+        unsafe { sys::abl_link_beat_at_time(self.handle, micros, quantum) }
     }
 
     /// Get the phase (position within a cycle) at the given time.
@@ -373,7 +422,7 @@ impl SessionState {
     #[must_use]
     pub fn phase_at_time(&self, micros: i64, quantum: f64) -> f64 {
         // Safety: handle is valid.
-        unsafe { sys::session_state_phase_at_time(self.handle, micros, quantum) }
+        unsafe { sys::abl_link_phase_at_time(self.handle, micros, quantum) }
     }
 
     /// Get the time at which the given beat occurs for the given quantum.
@@ -388,14 +437,15 @@ impl SessionState {
     #[must_use]
     pub fn time_at_beat(&self, beat: f64, quantum: f64) -> i64 {
         // Safety: handle is valid.
-        unsafe { sys::session_state_time_at_beat(self.handle, beat, quantum) }
+        unsafe { sys::abl_link_time_at_beat(self.handle, beat, quantum) }
     }
 
     /// Request to map the given beat to the given time (quantized launch).
     ///
-    /// If no other peers are connected, the beat/time mapping happens immediately.
-    /// If there are other peers, this waits until the next time the session phase
-    /// matches the phase of the given beat, enabling synchronized "quantized launch".
+    /// If no other peers are connected, the beat/time mapping happens
+    /// immediately. If there are other peers, this waits until the next time
+    /// the session phase matches the phase of the given beat, enabling
+    /// synchronized "quantized launch".
     ///
     /// # Arguments
     ///
@@ -405,7 +455,7 @@ impl SessionState {
     pub fn request_beat_at_time(&mut self, beat: f64, at_time_micros: i64, quantum: f64) {
         // Safety: handle is valid.
         unsafe {
-            sys::session_state_request_beat_at_time(self.handle, beat, at_time_micros, quantum);
+            sys::abl_link_request_beat_at_time(self.handle, beat, at_time_micros, quantum);
         }
     }
 
@@ -413,16 +463,24 @@ impl SessionState {
     ///
     /// **Warning:** This is anti-social behavior that disrupts other peers.
     /// Only use this for bridging an external clock source into a Link session.
-    /// Most applications should use [`request_beat_at_time`](Self::request_beat_at_time) instead.
+    /// Most applications should use
+    /// [`request_beat_at_time`](Self::request_beat_at_time) instead.
     ///
     /// # Arguments
     ///
     /// * `beat` - The beat to map.
     /// * `at_time_micros` - The time to map it to.
     /// * `quantum` - The quantum (beats per cycle/bar).
-    pub fn force_beat_at_time(&mut self, beat: f64, at_time_micros: i64, quantum: f64) {
+    ///
+    /// Note: `at_time_micros` is `uint64_t` in the C API, so we match that here
+    /// with `u64`. The C++ uses `std::chrono::microseconds` which is signed,
+    /// but if the lack of negative times is an issue, please open an issue.
+    pub fn force_beat_at_time(&mut self, beat: f64, at_time_micros: u64, quantum: f64) {
         // Safety: handle is valid.
-        unsafe { sys::session_state_force_beat_at_time(self.handle, beat, at_time_micros, quantum) }
+        //
+        unsafe {
+            sys::abl_link_force_beat_at_time(self.handle, beat, at_time_micros, quantum);
+        }
     }
 
     /// Check if transport is playing.
@@ -431,27 +489,97 @@ impl SessionState {
     #[must_use]
     pub fn is_playing(&self) -> bool {
         // Safety: handle is valid.
-        unsafe { sys::session_state_is_playing(self.handle) }
+        unsafe { sys::abl_link_is_playing(self.handle) }
     }
 
     /// Set whether transport should be playing or stopped.
     ///
-    /// This is part of the start/stop sync feature. The change takes effect
-    /// at the specified time.
+    /// This is part of the start/stop sync feature. The change takes effect at
+    /// the specified time.
     ///
     /// # Arguments
     ///
     /// * `is_playing` - `true` to start transport, `false` to stop.
     /// * `at_time_micros` - The time at which the change takes effect.
-    pub fn set_is_playing(&mut self, is_playing: bool, at_time_micros: i64) {
+    ///
+    /// Note: `at_time_micros` is `uint64_t` in the C API, so we match that here
+    /// with `u64`. The C++ uses `std::chrono::microseconds` which is signed,
+    /// but if the lack of negative times is an issue, please open an issue.
+    pub fn set_is_playing(&mut self, is_playing: bool, at_time_micros: u64) {
         // Safety: handle is valid.
-        unsafe { sys::session_state_set_is_playing(self.handle, is_playing, at_time_micros) }
+        unsafe { sys::abl_link_set_is_playing(self.handle, is_playing, at_time_micros) }
+    }
+
+    /// Get the time at which the transport start/stop state last changed.
+    ///
+    /// # Returns
+    ///
+    /// The time in microseconds at which the transport state change occurs.
+    ///
+    /// Note: Returns `u64` to match the C API (`uint64_t`).
+    #[must_use]
+    pub fn time_for_is_playing(&self) -> u64 {
+        // Safety: handle is valid.
+        unsafe { sys::abl_link_time_for_is_playing(self.handle) }
+    }
+
+    /// Request to map the given beat to the time when transport starts playing.
+    ///
+    /// This is a convenience function for quantized launch scenarios. It maps
+    /// the given beat to the transport start time. If transport is not playing
+    /// (`is_playing` is `false`), this function is a no-op.
+    ///
+    /// # Arguments
+    ///
+    /// * `beat` - The beat to map to the start time.
+    /// * `quantum` - The quantum (beats per cycle/bar).
+    pub fn request_beat_at_start_playing_time(&mut self, beat: f64, quantum: f64) {
+        // Safety: handle is valid.
+        unsafe { sys::abl_link_request_beat_at_start_playing_time(self.handle, beat, quantum) }
+    }
+
+    /// Set transport state and request a beat mapping in one operation.
+    ///
+    /// This is a convenience function that combines [`set_is_playing`] and
+    /// [`request_beat_at_time`]. It starts or stops transport at the given
+    /// time and attempts to map the given beat to that time.
+    ///
+    /// # Arguments
+    ///
+    /// * `is_playing` - `true` to start transport, `false` to stop.
+    /// * `at_time_micros` - The time at which the change takes effect.
+    /// * `beat` - The beat to map to the given time.
+    /// * `quantum` - The quantum (beats per cycle/bar).
+    ///
+    /// Note: `at_time_micros` is `uint64_t` in the C API, so we match that here
+    /// with `u64`. The C++ uses `std::chrono::microseconds` which is signed,
+    /// but if the lack of negative times is an issue, please open an issue.
+    ///
+    /// [`set_is_playing`]: Self::set_is_playing
+    /// [`request_beat_at_time`]: Self::request_beat_at_time
+    pub fn set_is_playing_and_request_beat_at_time(
+        &mut self,
+        is_playing: bool,
+        at_time_micros: u64,
+        beat: f64,
+        quantum: f64,
+    ) {
+        // Safety: handle is valid.
+        unsafe {
+            sys::abl_link_set_is_playing_and_request_beat_at_time(
+                self.handle,
+                is_playing,
+                at_time_micros,
+                beat,
+                quantum,
+            );
+        }
     }
 }
 
 impl Drop for SessionState {
     fn drop(&mut self) {
-        // Safety: handle is valid and session_state_destroy handles null.
-        unsafe { sys::session_state_destroy(self.handle) }
+        // Safety: handle is valid.
+        unsafe { sys::abl_link_destroy_session_state(self.handle) }
     }
 }
