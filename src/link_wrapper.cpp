@@ -9,6 +9,13 @@ struct LinkInstance {
     LinkInstance(double bpm) : link(bpm) {}
 };
 
+// C wrapper for ableton::Link::SessionState
+struct SessionStateInstance {
+    ableton::Link::SessionState state;
+    
+    SessionStateInstance(ableton::Link::SessionState s) : state(s) {}
+};
+
 extern "C" {
 
 LinkInstance* link_create(double bpm) {
@@ -36,38 +43,91 @@ bool link_is_enabled(const LinkInstance* link) {
     return false;
 }
 
-double link_get_tempo(const LinkInstance* link) {
+size_t link_num_peers(const LinkInstance* link) {
     if (link) {
-        auto sessionState = link->link.captureAppSessionState();
-        return sessionState.tempo();
+        return link->link.numPeers();
+    }
+    return 0;
+}
+
+SessionStateInstance* link_capture_app_session_state(const LinkInstance* link) {
+    if (link) {
+        try {
+            return new SessionStateInstance(link->link.captureAppSessionState());
+        } catch (...) {
+            return nullptr;
+        }
+    }
+    return nullptr;
+}
+
+void link_commit_app_session_state(LinkInstance* link, SessionStateInstance* state) {
+    if (link && state) {
+        link->link.commitAppSessionState(state->state);
+    }
+}
+
+void session_state_destroy(SessionStateInstance* state) {
+    delete state;
+}
+
+double session_state_tempo(const SessionStateInstance* state) {
+    if (state) {
+        return state->state.tempo();
     }
     return 120.0;
 }
 
-void link_set_tempo(LinkInstance* link, double bpm) {
-    if (link) {
-        auto sessionState = link->link.captureAppSessionState();
-        sessionState.setTempo(bpm, link->link.clock().micros());
-        link->link.commitAppSessionState(sessionState);
+void session_state_set_tempo(SessionStateInstance* state, double bpm, int64_t at_time_micros) {
+    if (state) {
+        state->state.setTempo(bpm, std::chrono::microseconds(at_time_micros));
     }
 }
 
-double link_get_beat_at_time(const LinkInstance* link, int64_t micros, double quantum) {
-    if (link) {
-        auto sessionState = link->link.captureAppSessionState();
-        auto time = std::chrono::microseconds(micros);
-        return sessionState.beatAtTime(time, quantum);
+double session_state_beat_at_time(const SessionStateInstance* state, int64_t micros, double quantum) {
+    if (state) {
+        return state->state.beatAtTime(std::chrono::microseconds(micros), quantum);
     }
     return 0.0;
 }
 
-double link_get_phase_at_time(const LinkInstance* link, int64_t micros, double quantum) {
-    if (link) {
-        auto sessionState = link->link.captureAppSessionState();
-        auto time = std::chrono::microseconds(micros);
-        return sessionState.phaseAtTime(time, quantum);
+double session_state_phase_at_time(const SessionStateInstance* state, int64_t micros, double quantum) {
+    if (state) {
+        return state->state.phaseAtTime(std::chrono::microseconds(micros), quantum);
     }
     return 0.0;
+}
+
+int64_t session_state_time_at_beat(const SessionStateInstance* state, double beat, double quantum) {
+    if (state) {
+        return state->state.timeAtBeat(beat, quantum).count();
+    }
+    return 0;
+}
+
+void session_state_request_beat_at_time(SessionStateInstance* state, double beat, int64_t at_time_micros, double quantum) {
+    if (state) {
+        state->state.requestBeatAtTime(beat, std::chrono::microseconds(at_time_micros), quantum);
+    }
+}
+
+void session_state_force_beat_at_time(SessionStateInstance* state, double beat, int64_t at_time_micros, double quantum) {
+    if (state) {
+        state->state.forceBeatAtTime(beat, std::chrono::microseconds(at_time_micros), quantum);
+    }
+}
+
+bool session_state_is_playing(const SessionStateInstance* state) {
+    if (state) {
+        return state->state.isPlaying();
+    }
+    return false;
+}
+
+void session_state_set_is_playing(SessionStateInstance* state, bool is_playing, int64_t at_time_micros) {
+    if (state) {
+        state->state.setIsPlaying(is_playing, std::chrono::microseconds(at_time_micros));
+    }
 }
 
 int64_t link_clock_micros(void) {

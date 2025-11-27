@@ -2,7 +2,7 @@ idf_component_register(
     SRCS "src/link_wrapper.cpp"
     INCLUDE_DIRS "include"
     REQUIRES asio
-    PRIV_REQUIRES sock_utils esp_timer esp_driver_gptimer esp_netif
+    PRIV_REQUIRES sock_utils esp_timer esp_netif
 )
 
 # C++11 is required for Ableton Link - use specific feature like the official example
@@ -19,9 +19,12 @@ target_include_directories(${COMPONENT_LIB} PRIVATE
 
 # Define required ESP32 platform configuration for Ableton Link
 # LINK_ESP_TASK_CORE_ID: Which core to run Link tasks on (0 or 1, use 1 to avoid WiFi core)
-target_compile_definitions(${COMPONENT_LIB} PRIVATE
-    LINK_ESP_TASK_CORE_ID=1
-)
+# LINK_ESP_EVENT_DRIVEN: Use blocking ASIO run() instead of polling (more efficient)
+set(LINK_COMPILE_DEFS LINK_ESP_TASK_CORE_ID=1)
+if(CONFIG_LINK_ESP_EVENT_DRIVEN)
+    list(APPEND LINK_COMPILE_DEFS LINK_ESP_EVENT_DRIVEN)
+endif()
+target_compile_definitions(${COMPONENT_LIB} PRIVATE ${LINK_COMPILE_DEFS})
 
 # Suppress return-type warnings for Link code (ASIO_NO_EXCEPTIONS causes unreachable code paths)
 # Link doesn't fully support no-exceptions mode

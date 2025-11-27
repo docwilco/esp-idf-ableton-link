@@ -12,15 +12,16 @@
 //! let mut link = Link::new(120.0).expect("Failed to create Link");
 //!
 //! // Enable Link to start synchronizing
-//! link.enable(true);
+//! link.enable();
 //!
-//! // Get the current tempo
-//! let tempo = link.tempo();
+//! // Capture session state and read tempo
+//! let state = link.capture_app_session_state().unwrap();
+//! let tempo = state.tempo();
 //! log::info!("Current tempo: {} BPM", tempo);
 //!
 //! // Get the current beat position
 //! let now = Link::clock_micros();
-//! let beat = link.beat_at_time(now, 4.0); // 4 beats per bar
+//! let beat = state.beat_at_time(now, 4.0); // 4 beats per bar
 //! log::info!("Current beat: {}", beat);
 //! ```
 //!
@@ -50,12 +51,15 @@ pub mod sys {
 pub enum LinkError {
     /// Failed to allocate memory for the Link instance.
     AllocationFailed,
+    /// Failed to capture session state.
+    SessionStateCaptureError,
 }
 
 impl core::fmt::Display for LinkError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::AllocationFailed => write!(f, "Failed to allocate Link instance"),
+            Self::SessionStateCaptureError => write!(f, "Failed to capture session state"),
         }
     }
 }
@@ -81,12 +85,17 @@ impl std::error::Error for LinkError {}
 /// use esp_idf_ableton_link::Link;
 ///
 /// let mut link = Link::new(120.0).expect("Failed to create Link");
-/// link.enable(true);
+/// link.enable();
 ///
-/// // In your audio callback or main loop:
+/// // Capture session state for reading/modifying
+/// let mut state = link.capture_app_session_state().unwrap();
 /// let now = Link::clock_micros();
-/// let beat = link.beat_at_time(now, 4.0);
-/// let phase = link.phase_at_time(now, 4.0);
+/// let beat = state.beat_at_time(now, 4.0);
+/// let phase = state.phase_at_time(now, 4.0);
+///
+/// // Modify and commit changes
+/// state.set_tempo(140.0, now);
+/// link.commit_app_session_state(&state);
 /// ```
 pub struct Link {
     handle: *mut sys::LinkInstance,
@@ -186,29 +195,56 @@ impl Link {
         unsafe { sys::link_is_enabled(self.handle) }
     }
 
-    /// Get the current tempo in beats per minute (BPM).
-    ///
-    /// This returns the tempo from the current session state. If Link is
-    /// enabled and connected to other peers, this will be the synchronized
-    /// tempo.
+    /// Get the number of peers currently connected in the Link session.
     ///
     /// # Returns
     ///
-    /// The current tempo in BPM.
+    /// The number of other Link-enabled applications connected to this session.
+    /// Returns 0 if no peers are connected (solo mode).
     #[must_use]
-    pub fn get_tempo(&self) -> f64 {
-        // Safety: handle is valid and link_get_tempo is safe to call.
-        unsafe { sys::link_get_tempo(self.handle) }
+    pub fn num_peers(&self) -> usize {
+        // Safety: handle is valid and link_num_peers is safe to call.
+        unsafe { sys::link_num_peers(self.handle) }
     }
 
-    /// Set the tempo in beats per minute (BPM).
+    /// Capture the current Link session state from an application thread.
     ///
-    /// When Link is enabled, this change will be propagated to all connected
-    /// peers on the network.
+    /// The returned [`SessionState`] is a snapshot of the current Link state.
+    /// It should be used in a local scope and not stored for later use, as it
+    /// will become stale.
     ///
-    /// # Arguments
+    /// To apply changes made to the session state, call
+    /// [`commit_app_session_state`](Self::commit_app_session_state).
     ///
-    /// * `bpm` - The new tempo in BPM. Typical values range from 20.0 to 999.0.
+    /// # Errors
+    ///
+    /// Returns [`LinkError::SessionStateCaptureError`] if the session state
+    /// could not be captured (typically due to memory exhaustion).
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use esp_idf_ableton_link::Link;
+    ///
+    /// let link = Link::new(120.0).unwrap();
+    /// let state = link.capture_app_session_state().unwrap();
+    /// let tempo = state.tempo();
+    /// ```
+    pub fn capture_app_session_state(&self) -> Result<SessionState, LinkError> {
+        // Safety: handle is valid and link_capture_app_session_state is safe to call.
+        let handle = unsafe { sys::link_capture_app_session_state(self.handle) };
+
+        if handle.is_null() {
+            Err(LinkError::SessionStateCaptureError)
+        } else {
+            Ok(SessionState { handle })
+        }
+    }
+
+    /// Commit the given session state to the Link session from an application thread.
+    ///
+    /// The given session state will replace the current Link session state.
+    /// Modifications will be communicated to other peers in the session.
     ///
     /// # Example
     ///
@@ -216,86 +252,21 @@ impl Link {
     /// use esp_idf_ableton_link::Link;
     ///
     /// let mut link = Link::new(120.0).unwrap();
-    /// link.set_tempo(140.0); // Change tempo to 140 BPM
-    /// ```
-    pub fn set_tempo(&mut self, bpm: f64) {
-        // Safety: handle is valid and sys::link_set_tempo is safe to call.
-        unsafe { sys::link_set_tempo(self.handle, bpm) }
-        log::debug!("Set tempo to {bpm} BPM");
-    }
-
-    /// Get the beat value at a given time.
-    ///
-    /// The beat value is a continuous floating-point number that increases
-    /// with time according to the current tempo. It can be used to determine
-    /// the current position in the musical timeline.
-    ///
-    /// # Arguments
-    ///
-    /// * `micros` - The time in microseconds (from [`Link::clock_micros()`]).
-    /// * `quantum` - The quantum (number of beats per cycle/bar). Common values
-    ///   are 4.0 (4/4 time) or 3.0 (3/4 time).
-    ///
-    /// # Returns
-    ///
-    /// The beat value at the specified time.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use esp_idf_ableton_link::Link;
-    ///
-    /// let link = Link::new(120.0).unwrap();
+    /// let mut state = link.capture_app_session_state().unwrap();
     /// let now = Link::clock_micros();
-    /// let beat = link.beat_at_time(now, 4.0);
-    /// log::info!("Current beat: {}", beat);
+    /// state.set_tempo(140.0, now);
+    /// link.commit_app_session_state(&state);
     /// ```
-    #[must_use]
-    pub fn beat_at_time(&self, micros: i64, quantum: f64) -> f64 {
-        // Safety: handle is valid and sys::link_get_beat_at_time is safe to call.
-        unsafe { sys::link_get_beat_at_time(self.handle, micros, quantum) }
-    }
-
-    /// Get the phase (position within a cycle) at a given time.
-    ///
-    /// The phase is a value from 0.0 to the quantum that represents the current
-    /// position within a bar or cycle. This is useful for synchronizing visual
-    /// effects or triggering events at specific points in the bar.
-    ///
-    /// # Arguments
-    ///
-    /// * `micros` - The time in microseconds (from [`Link::clock_micros()`]).
-    /// * `quantum` - The quantum (number of beats per cycle/bar).
-    ///
-    /// # Returns
-    ///
-    /// The phase value (0.0 to quantum) at the specified time.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use esp_idf_ableton_link::Link;
-    ///
-    /// let link = Link::new(120.0).unwrap();
-    /// let now = Link::clock_micros();
-    /// let phase = link.phase_at_time(now, 4.0);
-    ///
-    /// // Check if we're at the start of a bar (with some tolerance)
-    /// if phase < 0.1 || phase > 3.9 {
-    ///     log::info!("At the downbeat!");
-    /// }
-    /// ```
-    #[must_use]
-    pub fn phase_at_time(&self, micros: i64, quantum: f64) -> f64 {
-        // Safety: handle is valid and sys::link_get_phase_at_time is safe to call.
-        unsafe { sys::link_get_phase_at_time(self.handle, micros, quantum) }
+    pub fn commit_app_session_state(&mut self, state: &SessionState) {
+        // Safety: both handles are valid.
+        unsafe { sys::link_commit_app_session_state(self.handle, state.handle) }
     }
 
     /// Get the current Link clock time in microseconds.
     ///
     /// This returns the current time from Link's internal clock, which is
     /// synchronized across all connected peers. Use this value as input to
-    /// [`beat_at_time()`](Self::beat_at_time) and [`phase_at_time()`](Self::phase_at_time).
+    /// [`SessionState::beat_at_time`] and [`SessionState::phase_at_time`].
     ///
     /// # Returns
     ///
@@ -323,5 +294,164 @@ impl Drop for Link {
         // handles null checks internally. After this call, handle is invalid
         // but that's fine since we're being dropped.
         unsafe { sys::link_destroy(self.handle) }
+    }
+}
+
+/// A snapshot of the Link session state.
+///
+/// This represents a point-in-time view of the Link session's timeline and
+/// transport state. It provides methods to read and modify tempo, beat position,
+/// and transport (play/stop) state.
+///
+/// # Usage
+///
+/// 1. Capture a session state with [`Link::capture_app_session_state`]
+/// 2. Read values using [`tempo`](Self::tempo), [`beat_at_time`](Self::beat_at_time), etc.
+/// 3. Optionally modify using [`set_tempo`](Self::set_tempo), [`request_beat_at_time`](Self::request_beat_at_time), etc.
+/// 4. Commit changes with [`Link::commit_app_session_state`]
+///
+/// # Important
+///
+/// This is a snapshot and will become stale. Don't store it for later use.
+/// Capture a fresh state when you need current values.
+pub struct SessionState {
+    handle: *mut sys::SessionStateInstance,
+}
+
+// Safety: SessionState is an independent snapshot with no references to Link.
+// It can be safely moved between threads.
+unsafe impl Send for SessionState {}
+
+impl SessionState {
+    /// Get the tempo of the timeline in Beats Per Minute.
+    ///
+    /// This is a stable value appropriate for display to the user.
+    /// Beat time progress may not match this tempo exactly due to
+    /// clock drift compensation.
+    #[must_use]
+    pub fn tempo(&self) -> f64 {
+        // Safety: handle is valid.
+        unsafe { sys::session_state_tempo(self.handle) }
+    }
+
+    /// Set the timeline tempo to the given BPM value.
+    ///
+    /// # Arguments
+    ///
+    /// * `bpm` - The new tempo in beats per minute.
+    /// * `at_time_micros` - The time at which the tempo change takes effect.
+    pub fn set_tempo(&mut self, bpm: f64, at_time_micros: i64) {
+        // Safety: handle is valid.
+        unsafe { sys::session_state_set_tempo(self.handle, bpm, at_time_micros) }
+    }
+
+    /// Get the beat value at the given time for the given quantum.
+    ///
+    /// The beat value's magnitude is unique to this Link instance, but its
+    /// phase with respect to the quantum is shared among all session peers.
+    ///
+    /// # Arguments
+    ///
+    /// * `micros` - The time in microseconds (from [`Link::clock_micros`]).
+    /// * `quantum` - The quantum (beats per cycle/bar).
+    #[must_use]
+    pub fn beat_at_time(&self, micros: i64, quantum: f64) -> f64 {
+        // Safety: handle is valid.
+        unsafe { sys::session_state_beat_at_time(self.handle, micros, quantum) }
+    }
+
+    /// Get the phase (position within a cycle) at the given time.
+    ///
+    /// The result is in the interval `[0, quantum)`. This is equivalent to
+    /// `beat_at_time(t, q) % q` for non-negative beat values, but handles
+    /// negative values correctly.
+    ///
+    /// # Arguments
+    ///
+    /// * `micros` - The time in microseconds (from [`Link::clock_micros`]).
+    /// * `quantum` - The quantum (beats per cycle/bar).
+    #[must_use]
+    pub fn phase_at_time(&self, micros: i64, quantum: f64) -> f64 {
+        // Safety: handle is valid.
+        unsafe { sys::session_state_phase_at_time(self.handle, micros, quantum) }
+    }
+
+    /// Get the time at which the given beat occurs for the given quantum.
+    ///
+    /// This is the inverse of [`beat_at_time`](Self::beat_at_time), assuming
+    /// constant tempo.
+    ///
+    /// # Arguments
+    ///
+    /// * `beat` - The beat value.
+    /// * `quantum` - The quantum (beats per cycle/bar).
+    #[must_use]
+    pub fn time_at_beat(&self, beat: f64, quantum: f64) -> i64 {
+        // Safety: handle is valid.
+        unsafe { sys::session_state_time_at_beat(self.handle, beat, quantum) }
+    }
+
+    /// Request to map the given beat to the given time (quantized launch).
+    ///
+    /// If no other peers are connected, the beat/time mapping happens immediately.
+    /// If there are other peers, this waits until the next time the session phase
+    /// matches the phase of the given beat, enabling synchronized "quantized launch".
+    ///
+    /// # Arguments
+    ///
+    /// * `beat` - The beat to map.
+    /// * `at_time_micros` - The requested time.
+    /// * `quantum` - The quantum (beats per cycle/bar).
+    pub fn request_beat_at_time(&mut self, beat: f64, at_time_micros: i64, quantum: f64) {
+        // Safety: handle is valid.
+        unsafe {
+            sys::session_state_request_beat_at_time(self.handle, beat, at_time_micros, quantum);
+        }
+    }
+
+    /// Forcibly map the given beat to the given time for all peers.
+    ///
+    /// **Warning:** This is anti-social behavior that disrupts other peers.
+    /// Only use this for bridging an external clock source into a Link session.
+    /// Most applications should use [`request_beat_at_time`](Self::request_beat_at_time) instead.
+    ///
+    /// # Arguments
+    ///
+    /// * `beat` - The beat to map.
+    /// * `at_time_micros` - The time to map it to.
+    /// * `quantum` - The quantum (beats per cycle/bar).
+    pub fn force_beat_at_time(&mut self, beat: f64, at_time_micros: i64, quantum: f64) {
+        // Safety: handle is valid.
+        unsafe { sys::session_state_force_beat_at_time(self.handle, beat, at_time_micros, quantum) }
+    }
+
+    /// Check if transport is playing.
+    ///
+    /// This is part of the start/stop sync feature.
+    #[must_use]
+    pub fn is_playing(&self) -> bool {
+        // Safety: handle is valid.
+        unsafe { sys::session_state_is_playing(self.handle) }
+    }
+
+    /// Set whether transport should be playing or stopped.
+    ///
+    /// This is part of the start/stop sync feature. The change takes effect
+    /// at the specified time.
+    ///
+    /// # Arguments
+    ///
+    /// * `is_playing` - `true` to start transport, `false` to stop.
+    /// * `at_time_micros` - The time at which the change takes effect.
+    pub fn set_is_playing(&mut self, is_playing: bool, at_time_micros: i64) {
+        // Safety: handle is valid.
+        unsafe { sys::session_state_set_is_playing(self.handle, is_playing, at_time_micros) }
+    }
+}
+
+impl Drop for SessionState {
+    fn drop(&mut self) {
+        // Safety: handle is valid and session_state_destroy handles null.
+        unsafe { sys::session_state_destroy(self.handle) }
     }
 }
