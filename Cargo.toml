@@ -24,6 +24,6 @@ embuild = "0.33"
 
 [package.metadata.esp-idf-sys]
 extra_components = [
-    { component_dirs = ["."], bindings_header = "ableton-link/extensions/abl_link/include/abl_link.h", bindings_module = "ableton_link" },
+    { component_dirs = ["components"], bindings_header = "ableton-link/extensions/abl_link/include/abl_link.h", bindings_module = "ableton_link" },
     { remote_component = { name = "espressif/asio", version = "*" } }
 ]
