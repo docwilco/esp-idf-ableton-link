@@ -1,6 +1,6 @@
 idf_component_register(
-    SRCS "../../ableton-link/extensions/abl_link/src/abl_link.cpp"
-    INCLUDE_DIRS "../../ableton-link/extensions/abl_link/include"
+    SRCS "vendor/ableton-link/extensions/abl_link/src/abl_link.cpp"
+    INCLUDE_DIRS "vendor/ableton-link/extensions/abl_link/include"
     REQUIRES asio
     PRIV_REQUIRES sock_utils esp_timer esp_netif
 )
@@ -11,7 +11,7 @@ target_compile_features(${COMPONENT_LIB} PRIVATE cxx_generalized_initializers)
 
 # Ableton Link include directories (internal, abl_link.cpp needs Link.hpp)
 target_include_directories(${COMPONENT_LIB} PRIVATE
-    "${CMAKE_CURRENT_LIST_DIR}/../../ableton-link/include"
+    "${CMAKE_CURRENT_LIST_DIR}/vendor/ableton-link/include"
 )
 
 # ESP_PLATFORM is automatically defined by ESP-IDF, which Link uses to detect ESP32

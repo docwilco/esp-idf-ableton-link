@@ -1,3 +1,3 @@
 [submodule "ableton-link"]
-	path = ableton-link
+	path = components/ableton_link/vendor/ableton-link
 	url = git@github.com:Ableton/link.git
