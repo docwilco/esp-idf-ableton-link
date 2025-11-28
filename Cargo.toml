@@ -1,9 +1,9 @@
 [package]
 name = "esp-idf-ableton-link"
-version.workspace = true
-authors.workspace = true
-edition.workspace = true
-license.workspace = true
+version = "0.1.0"
+authors = ["DocWilco <github@drwil.co>"]
+edition = "2021"
+license = "GPL-2.0-or-later"
 description = "Safe Rust wrapper for Ableton Link on ESP32 via ESP-IDF"
 keywords = ["esp32", "esp-idf", "ableton", "link", "music"]
 categories = ["embedded", "hardware-support"]
@@ -21,6 +21,6 @@ glob = "0.3"
 
 [package.metadata.esp-idf-sys]
 extra_components = [
-    { component_dirs = ["../esp-idf-ableton-link"], bindings_header = "../esp-idf-ableton-link/ableton-link/extensions/abl_link/include/abl_link.h", bindings_module = "ableton_link" },
+    { component_dirs = ["."], bindings_header = "ableton-link/extensions/abl_link/include/abl_link.h", bindings_module = "ableton_link" },
     { remote_component = { name = "espressif/asio", version = "*" } }
 ]
