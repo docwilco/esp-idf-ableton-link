@@ -10,6 +10,7 @@ sdkconfig
 sdkconfig.old
 dependencies.lock
 .embuild
+components_esp32.lock
 
 # IDE
 .vscode/
