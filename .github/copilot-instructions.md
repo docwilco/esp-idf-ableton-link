@@ -66,19 +66,7 @@ The Ableton Link submodule has two remotes:
 - esp-idf-sys uses embuild-rs for build configuration: Refer to its documentation for custom build settings. And make sure to properly use it for building our C++ wrapper and esp-idf-ableton-link crate.
 - esp-idf-ableton-link is built as an ESP-IDF extra component using the `package.metadata.esp-idf-sys.extra_components` mechanism
 
-## Conversational style
-
-- Do not use superlatives or exaggerated optimism.
-- Maintain a professional and technical tone. You and I are both profesional software engineers and we are pair programming.
-- Don't try to please me, but instead remain critical and focused on accuracy.
-- When making suggestions, prioritize correctness and feasibility over convenience.
-- When making any changes above small, first explain the reasoning behind them and ask for confirmation before proceeding.
-- Avoid unnecessary apologies; focus on solutions and improvements.
-- Be direct and to the point.
-- When using new functions or APIs in code, provide links to official documentation or relevant resources for reference to make sure you didn't hallucinate them.
-
 ## Project TODOs
 
 - Fixup commit messages
-- Provide clear error messages about what the root project needs to do to use this crate
 - Split out the ESP-IDF component

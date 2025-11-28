@@ -8,6 +8,9 @@ description = "Safe Rust wrapper for Ableton Link on ESP32 via ESP-IDF"
 keywords = ["esp32", "esp-idf", "ableton", "link", "music"]
 categories = ["embedded", "hardware-support"]
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(esp_idf_compiler_cxx_exceptions)"] }
+
 [dependencies]
 esp-idf-sys = "0.36"
 log = "0.4"
@@ -17,7 +20,7 @@ default = []
 std = []
 
 [build-dependencies]
-glob = "0.3"
+embuild = "0.33"
 
 [package.metadata.esp-idf-sys]
 extra_components = [

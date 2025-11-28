@@ -32,8 +32,65 @@
 //! wrapper from Ableton Link is used, and CMakeLists.txt is included in the
 //! crate directory and should be referenced in your firmware's
 //! `[package.metadata.esp-idf-sys].extra_components` configuration.
+//!
+//! # Required Configuration
+//!
+//! ## C++ Exceptions
+//!
+//! Ableton Link requires C++ exception support. Add this to your
+//! `sdkconfig.defaults`:
+//!
+//! ```text
+//! CONFIG_COMPILER_CXX_EXCEPTIONS=y
+//! ```
+//!
+//! ## Root Crate Configuration
+//!
+//! If you're using a virtual workspace (no root package), you must set
+//! `ESP_IDF_SYS_ROOT_CRATE` in your `.cargo/config.toml`:
+//!
+//! ```toml
+//! [env]
+//! ESP_IDF_SYS_ROOT_CRATE = "your-firmware-crate-name"
+//! ```
 
 #![cfg_attr(not(feature = "std"), no_std)]
+
+#[cfg(not(esp_idf_compiler_cxx_exceptions))]
+compile_error!(
+    r#"
+================================================================================
+                    ESP-IDF ABLETON LINK CONFIGURATION ERROR
+================================================================================
+
+Ableton Link requires C++ exception support, but CONFIG_COMPILER_CXX_EXCEPTIONS
+is not enabled in your ESP-IDF configuration.
+
+To fix this, add the following line to your project's `sdkconfig.defaults` file:
+
+    CONFIG_COMPILER_CXX_EXCEPTIONS=y
+
+Then clean and rebuild:
+
+    cargo clean
+    cargo build
+
+WHY THIS IS REQUIRED:
+---------------------
+Ableton Link's C++ implementation uses exceptions for error handling. Without
+exception support enabled in ESP-IDF, the Link library will fail to compile.
+
+LOCATION:
+---------
+Create or edit `sdkconfig.defaults` in your project root (the same directory
+as your main Cargo.toml).
+
+For more information about ESP-IDF sdkconfig options, see:
+https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/kconfig.html
+
+================================================================================
+"#
+);
 
 #[cfg(feature = "std")]
 extern crate std;

@@ -1,36 +1,59 @@
 fn main() {
-    // Track our own files
-    println!("cargo:rerun-if-changed=src/link_wrapper.cpp");
-    println!("cargo:rerun-if-changed=include/link_wrapper.h");
-    println!("cargo:rerun-if-changed=CMakeLists.txt");
-    println!("cargo:rerun-if-changed=Kconfig");
+    // Propagate cfgs from esp-idf-sys (e.g., esp_idf_compiler_cxx_exceptions)
+    embuild::espidf::sysenv::output();
 
-    // Track all Link headers
-    for entry in glob::glob("ableton-link/include/**/*.hpp").unwrap().flatten() {
-        println!("cargo:rerun-if-changed={}", entry.display());
-    }
+    println!("cargo:rerun-if-env-changed=ESP_IDF_SYS_ROOT_CRATE");
 
-    // Track cmake_include files
-    for entry in glob::glob("ableton-link/cmake_include/**/*.cmake").unwrap().flatten() {
-        println!("cargo:rerun-if-changed={}", entry.display());
-    }
+    if std::env::var("ESP_IDF_SYS_ROOT_CRATE").is_err() {
+        panic!(
+            r#"
+================================================================================
+                    ESP-IDF ABLETON LINK CONFIGURATION ERROR
+================================================================================
 
-    // Track extensions (abl_link C wrapper)
-    for pattern in [
-        "ableton-link/extensions/**/*.hpp",
-        "ableton-link/extensions/**/*.h",
-        "ableton-link/extensions/**/*.cpp",
-        "ableton-link/extensions/**/*.c",
-        "ableton-link/extensions/**/*.cmake",
-        "ableton-link/extensions/**/CMakeLists.txt",
-    ] {
-        for entry in glob::glob(pattern).unwrap().flatten() {
-            println!("cargo:rerun-if-changed={}", entry.display());
-        }
-    }
+The ESP_IDF_SYS_ROOT_CRATE environment variable is not set.
 
-    // Track Link's own CMakeLists.txt files
-    for entry in glob::glob("ableton-link/**/CMakeLists.txt").unwrap().flatten() {
-        println!("cargo:rerun-if-changed={}", entry.display());
+This variable is REQUIRED for esp-idf-ableton-link to work correctly. Without
+it, esp-idf-sys cannot locate the extra component configuration needed to build
+the Ableton Link bindings.
+
+TO FIX THIS:
+------------
+Add the following to your project's `.cargo/config.toml`:
+
+    [env]
+    ESP_IDF_SYS_ROOT_CRATE = "your-firmware-crate-name"
+
+Replace "your-firmware-crate-name" with the actual name of your root crate
+(the `name` field in your Cargo.toml's [package] section).
+
+WHY THIS IS REQUIRED:
+---------------------
+esp-idf-ableton-link provides an ESP-IDF extra component (abl_link) that
+esp-idf-sys then generates bindings for. Without this environment variable,
+the bindings will not be generated and compilation will fail.
+
+EXAMPLE .cargo/config.toml:
+---------------------------
+    [build]
+    target = "xtensa-esp32-espidf"
+
+    [target.xtensa-esp32-espidf]
+    linker = "ldproxy"
+    runner = "espflash flash --monitor"
+    rustflags = [ "--cfg",  "espidf_time64"]
+
+    [env]
+    MCU="esp32"
+    ESP_IDF_VERSION = "v5.3.3"
+    ESP_IDF_SYS_ROOT_CRATE = "my-esp32-project"
+
+
+For more information, see:
+https://github.com/esp-rs/esp-idf-sys/blob/master/BUILD-OPTIONS.md#extra-esp-idf-components
+
+================================================================================
+"#
+        );
     }
 }
