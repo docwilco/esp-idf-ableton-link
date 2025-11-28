@@ -46,51 +46,26 @@
 //!
 //! ## Root Crate Configuration
 //!
-//! If you're using a virtual workspace (no root package), you must set
-//! `ESP_IDF_SYS_ROOT_CRATE` in your `.cargo/config.toml`:
+//! You must set `ESP_IDF_SYS_ROOT_CRATE` in your `.cargo/config.toml` so
+//! that esp-idf-sys can discover the extra component configuration from
+//! this crate:
 //!
 //! ```toml
+//! [build]
+//! target = "xtensa-esp32-espidf"
+//! 
+//! [target.xtensa-esp32-espidf]
+//! linker = "ldproxy"
+//! runner = "espflash flash --monitor"
+//! rustflags = [ "--cfg",  "espidf_time64"]
+//! 
 //! [env]
-//! ESP_IDF_SYS_ROOT_CRATE = "your-firmware-crate-name"
+//! MCU="esp32"
+//! ESP_IDF_VERSION = "v5.3.3"
+//! ESP_IDF_SYS_ROOT_CRATE = "my-esp32-project"
 //! ```
 
 #![cfg_attr(not(feature = "std"), no_std)]
-
-#[cfg(not(esp_idf_compiler_cxx_exceptions))]
-compile_error!(
-    r#"
-================================================================================
-                    ESP-IDF ABLETON LINK CONFIGURATION ERROR
-================================================================================
-
-Ableton Link requires C++ exception support, but CONFIG_COMPILER_CXX_EXCEPTIONS
-is not enabled in your ESP-IDF configuration.
-
-To fix this, add the following line to your project's `sdkconfig.defaults` file:
-
-    CONFIG_COMPILER_CXX_EXCEPTIONS=y
-
-Then clean and rebuild:
-
-    cargo clean
-    cargo build
-
-WHY THIS IS REQUIRED:
----------------------
-Ableton Link's C++ implementation uses exceptions for error handling. Without
-exception support enabled in ESP-IDF, the Link library will fail to compile.
-
-LOCATION:
----------
-Create or edit `sdkconfig.defaults` in your project root (the same directory
-as your main Cargo.toml).
-
-For more information about ESP-IDF sdkconfig options, see:
-https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/kconfig.html
-
-================================================================================
-"#
-);
 
 #[cfg(feature = "std")]
 extern crate std;
