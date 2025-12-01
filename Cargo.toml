@@ -21,5 +21,5 @@ embuild = "0.33"
 
 [package.metadata.esp-idf-sys]
 extra_components = [
-    { remote_component = { name = "esp_ableton_link", version = "5cba4a8f2d51bfe16d22fc300159d7963387ba9f", git = "https://github.com/docwilco/esp_ableton_link.git" }, bindings_header = "src/bindings.h", bindings_module = "ableton_link" },
+    { remote_component = { name = "esp_ableton_link", version = "3461188c9cc3cc26be311f69203f7a5518372676", git = "https://github.com/docwilco/esp_ableton_link.git" }, bindings_header = "src/bindings.h", bindings_module = "ableton_link" },
 ]
