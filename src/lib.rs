@@ -65,19 +65,13 @@
 //! ESP_IDF_SYS_ROOT_CRATE = "my-esp32-project"
 //! ```
 
-#![cfg_attr(not(feature = "std"), no_std)]
-
-#[cfg(feature = "std")]
-extern crate std;
-
 use core::marker::PhantomData;
 
-// Re-export the raw bindings for advanced users who need direct access
-pub mod sys {
+mod sys {
     // Allow wildcard imports for the sys module since there is nothing else in
     // this module.
     #[allow(clippy::wildcard_imports)]
-    pub use esp_idf_sys::ableton_link::*;
+    pub use esp_idf_sys::abl_link::*;
 }
 
 /// Error type for Link operations.

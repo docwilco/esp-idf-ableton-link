@@ -1,12 +1,13 @@
 [package]
 name = "esp-idf-ableton-link"
-version = "0.1.0"
-authors = ["DocWilco <github@drwil.co>"]
+version = "0.1.0+link.3.1.5"
 edition = "2021"
+rust-version = "1.88"
 license = "GPL-2.0-or-later"
 description = "Safe Rust wrapper for Ableton Link on ESP32 via ESP-IDF"
-keywords = ["esp32", "esp-idf", "ableton", "link", "music"]
-categories = ["embedded", "hardware-support"]
+repository = "https://github.com/docwilco/esp-idf-ableton-link"
+keywords = ["esp32", "esp-idf", "ableton", "link", "sync"]
+categories = ["embedded", "network-programming"]
 
 [dependencies]
 esp-idf-sys = "0.36"
@@ -21,5 +22,5 @@ embuild = "0.33"
 
 [package.metadata.esp-idf-sys]
 extra_components = [
-    { remote_component = { name = "esp_ableton_link", version = "3461188c9cc3cc26be311f69203f7a5518372676", git = "https://github.com/docwilco/esp_ableton_link.git" }, bindings_header = "src/bindings.h", bindings_module = "ableton_link" },
+    { remote_component = { name = "docwilco/esp_abl_link", version = "3.1.5" }, bindings_header = "src/bindings.h", bindings_module = "abl_link" },
 ]
