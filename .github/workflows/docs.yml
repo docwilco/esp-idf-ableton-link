@@ -28,6 +28,10 @@ jobs:
 
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-directories: |
+            ~/.rustup/toolchains/esp
+            ~/.rustup/update-hashes
 
       - name: Setup Xtensa Rust toolchain
         uses: esp-rs/xtensa-toolchain@v1.6
