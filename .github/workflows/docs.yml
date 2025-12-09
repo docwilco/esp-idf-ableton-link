@@ -32,6 +32,7 @@ jobs:
           cache-directories: |
             ~/.rustup/toolchains/esp
             ~/.rustup/update-hashes
+            .embuild
 
       - name: Setup Xtensa Rust toolchain
         uses: esp-rs/xtensa-toolchain@v1.6
