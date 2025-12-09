@@ -149,6 +149,17 @@ impl core::fmt::Display for LinkError {
 
 impl std::error::Error for LinkError {}
 
+// Generic trampoline function for C callbacks.
+extern "C" fn trampoline<T>(value: T, context: *mut c_void) {
+    // Catch panics to prevent unwinding across FFI boundary
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // Safety: context is a valid pointer to Box<dyn FnMut(T) + Send>
+        // created by a set_*_callback method. Link's mutex ensures no concurrent calls.
+        let callback = unsafe { &mut *context.cast::<Box<dyn FnMut(T) + Send>>() };
+        callback(value);
+    }));
+}
+
 /// A safe wrapper around an Ableton Link instance.
 ///
 /// Link enables musical applications to synchronize tempo and beat phase over a
@@ -429,30 +440,25 @@ impl Link {
 
         // Box the closure and convert to raw pointer
         let boxed: Box<dyn FnMut(u64) + Send> = Box::new(callback);
-        let context = Box::into_raw(Box::new(boxed)) as *mut c_void;
+        let context = Box::into_raw(Box::new(boxed)).cast::<c_void>();
         self.num_peers_callback_ctx = Some(context);
-
-        extern "C" fn trampoline(num_peers: u64, context: *mut c_void) {
-            // Catch panics to prevent unwinding across FFI boundary
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                // Safety: context is a valid pointer to Box<dyn FnMut(u64) + Send>
-                // that we created above. Link's mutex ensures no concurrent calls.
-                let callback =
-                    unsafe { &mut *(context as *mut Box<dyn FnMut(u64) + Send>) };
-                callback(num_peers);
-            }));
-        }
 
         // Safety: handle is valid, trampoline has correct signature, context is valid.
         // This atomically replaces the old callback, so it's safe to drop old_ctx after.
         unsafe {
-            sys::abl_link_set_num_peers_callback(self.handle, Some(trampoline), context);
+            sys::abl_link_set_num_peers_callback(
+                self.handle,
+                Some(trampoline::<u64>),
+                context,
+            );
         }
 
         // Now safe to drop old context since C++ side no longer references it
         if let Some(old) = old_ctx {
             unsafe {
-                drop(Box::from_raw(old as *mut Box<dyn FnMut(u64) + Send>));
+                drop(Box::from_raw(
+                    old.cast::<Box<dyn FnMut(u64) + Send>>(),
+                ));
             }
         }
     }
@@ -472,7 +478,9 @@ impl Link {
             }
             // Safety: ctx was created by Box::into_raw in set_num_peers_callback.
             unsafe {
-                drop(Box::from_raw(ctx as *mut Box<dyn FnMut(u64) + Send>));
+                drop(Box::from_raw(
+                    ctx.cast::<Box<dyn FnMut(u64) + Send>>(),
+                ));
             }
         }
     }
@@ -510,30 +518,19 @@ impl Link {
 
         // Box the closure and convert to raw pointer
         let boxed: Box<dyn FnMut(f64) + Send> = Box::new(callback);
-        let context = Box::into_raw(Box::new(boxed)) as *mut c_void;
+        let context = Box::into_raw(Box::new(boxed)).cast::<c_void>();
         self.tempo_callback_ctx = Some(context);
-
-        extern "C" fn trampoline(tempo: f64, context: *mut c_void) {
-            // Catch panics to prevent unwinding across FFI boundary
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                // Safety: context is a valid pointer to Box<dyn FnMut(f64) + Send>
-                // that we created above. Link's mutex ensures no concurrent calls.
-                let callback =
-                    unsafe { &mut *(context as *mut Box<dyn FnMut(f64) + Send>) };
-                callback(tempo);
-            }));
-        }
 
         // Safety: handle is valid, trampoline has correct signature, context is valid.
         // This atomically replaces the old callback, so it's safe to drop old_ctx after.
         unsafe {
-            sys::abl_link_set_tempo_callback(self.handle, Some(trampoline), context);
+            sys::abl_link_set_tempo_callback(self.handle, Some(trampoline::<f64>), context);
         }
 
         // Now safe to drop old context since C++ side no longer references it
         if let Some(old) = old_ctx {
             unsafe {
-                drop(Box::from_raw(old as *mut Box<dyn FnMut(f64) + Send>));
+                drop(Box::from_raw(old.cast::<Box<dyn FnMut(f64) + Send>>()));
             }
         }
     }
@@ -549,7 +546,7 @@ impl Link {
             }
             // Safety: ctx was created by Box::into_raw in set_tempo_callback.
             unsafe {
-                drop(Box::from_raw(ctx as *mut Box<dyn FnMut(f64) + Send>));
+                drop(Box::from_raw(ctx.cast::<Box<dyn FnMut(f64) + Send>>()));
             }
         }
     }
@@ -592,30 +589,23 @@ impl Link {
 
         // Box the closure and convert to raw pointer
         let boxed: Box<dyn FnMut(bool) + Send> = Box::new(callback);
-        let context = Box::into_raw(Box::new(boxed)) as *mut c_void;
+        let context = Box::into_raw(Box::new(boxed)).cast::<c_void>();
         self.start_stop_callback_ctx = Some(context);
-
-        extern "C" fn trampoline(is_playing: bool, context: *mut c_void) {
-            // Catch panics to prevent unwinding across FFI boundary
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                // Safety: context is a valid pointer to Box<dyn FnMut(bool) + Send>
-                // that we created above. Link's mutex ensures no concurrent calls.
-                let callback =
-                    unsafe { &mut *(context as *mut Box<dyn FnMut(bool) + Send>) };
-                callback(is_playing);
-            }));
-        }
 
         // Safety: handle is valid, trampoline has correct signature, context is valid.
         // This atomically replaces the old callback, so it's safe to drop old_ctx after.
         unsafe {
-            sys::abl_link_set_start_stop_callback(self.handle, Some(trampoline), context);
+            sys::abl_link_set_start_stop_callback(
+                self.handle,
+                Some(trampoline::<bool>),
+                context,
+            );
         }
 
         // Now safe to drop old context since C++ side no longer references it
         if let Some(old) = old_ctx {
             unsafe {
-                drop(Box::from_raw(old as *mut Box<dyn FnMut(bool) + Send>));
+                drop(Box::from_raw(old.cast::<Box<dyn FnMut(bool) + Send>>()));
             }
         }
     }
@@ -635,7 +625,7 @@ impl Link {
             }
             // Safety: ctx was created by Box::into_raw in set_start_stop_callback.
             unsafe {
-                drop(Box::from_raw(ctx as *mut Box<dyn FnMut(bool) + Send>));
+                drop(Box::from_raw(ctx.cast::<Box<dyn FnMut(bool) + Send>>()));
             }
         }
     }
