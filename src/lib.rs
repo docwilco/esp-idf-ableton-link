@@ -654,6 +654,40 @@ impl Link {
         // Safety: handle is valid.
         unsafe { sys::abl_link_clock_micros(self.handle) }
     }
+
+    /// Bind this Link instance for audio-thread access.
+    ///
+    /// Returns an [`AudioLink`] handle that provides realtime-safe
+    /// (non-blocking) methods for capturing and committing session state.
+    /// The handle is bound to the current thread and cannot be sent to other
+    /// threads.
+    ///
+    /// While the `AudioLink` handle exists, this `Link` instance is mutably
+    /// borrowed, preventing concurrent access to app-thread session state
+    /// methods.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use esp_idf_ableton_link::Link;
+    ///
+    /// let mut link = Link::new(120.0).unwrap();
+    /// link.enable();
+    ///
+    /// // Bind to the audio thread
+    /// let audio_link = link.bind_audio_thread();
+    ///
+    /// // Use realtime-safe methods
+    /// let state = audio_link.capture_session_state().unwrap();
+    /// let now = audio_link.clock_micros();
+    /// let beat = state.beat_at_time(now, 4.0);
+    /// ```
+    pub fn bind_audio_thread(&mut self) -> AudioLink<'_> {
+        AudioLink {
+            link: self,
+            _not_send_sync: PhantomData,
+        }
+    }
 }
 
 impl Drop for Link {
@@ -670,6 +704,99 @@ impl Drop for Link {
         // Safety: handle is valid (checked in new()). After this call, handle
         // is invalid but that's fine since we're being dropped.
         unsafe { sys::abl_link_destroy(self.handle) }
+    }
+}
+
+/// A handle for accessing Link session state from a realtime audio thread.
+///
+/// This type provides realtime-safe (non-blocking) methods for capturing and
+/// committing session state. It is designed for use in audio callbacks or
+/// high-priority tasks where blocking is not acceptable.
+///
+/// # Thread Safety
+///
+/// `AudioLink` is `!Send` and `!Sync`, meaning it cannot be sent to or shared
+/// with other threads. This ensures that the audio session state functions are
+/// only called from the thread that created the handle, as required by the
+/// underlying Link library.
+///
+/// # Exclusivity
+///
+/// While an `AudioLink` handle exists, the parent [`Link`] instance is mutably
+/// borrowed, preventing concurrent access to app-thread session state methods.
+/// This matches the Link library's recommendation to avoid modifying session
+/// state from both audio and application threads concurrently.
+///
+/// # Example
+///
+/// ```no_run
+/// use esp_idf_ableton_link::Link;
+///
+/// let mut link = Link::new(120.0).unwrap();
+/// link.enable();
+///
+/// // In your audio thread setup:
+/// let audio_link = link.bind_audio_thread();
+///
+/// // In the audio callback (same thread):
+/// let state = audio_link.capture_session_state().unwrap();
+/// let now = audio_link.clock_micros();
+/// let beat = state.beat_at_time(now, 4.0);
+/// // ... generate audio based on beat position ...
+/// ```
+pub struct AudioLink<'a> {
+    link: &'a mut Link,
+    // PhantomData<*mut ()> makes this type !Send and !Sync
+    _not_send_sync: PhantomData<*mut ()>,
+}
+
+impl AudioLink<'_> {
+    /// Capture the current Link session state (realtime-safe).
+    ///
+    /// This method is non-blocking and safe to call from a realtime audio
+    /// context. The returned [`SessionState`] is a snapshot that should be
+    /// used locally and not stored for later use.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LinkError::SessionStateCaptureError`] if the session state
+    /// could not be captured.
+    pub fn capture_session_state(&self) -> Result<SessionState, LinkError> {
+        // Safety: abl_link_create_session_state allocates a new session state.
+        let session_state = unsafe { sys::abl_link_create_session_state() };
+
+        if session_state.impl_.is_null() {
+            return Err(LinkError::SessionStateCaptureError);
+        }
+
+        // Safety: Both handles are valid. AudioLink's !Send guarantee ensures
+        // we're on the designated audio thread.
+        unsafe { sys::abl_link_capture_audio_session_state(self.link.handle, session_state) };
+
+        Ok(SessionState {
+            handle: session_state,
+        })
+    }
+
+    /// Commit the given session state to the Link session (realtime-safe).
+    ///
+    /// This method is non-blocking and safe to call from a realtime audio
+    /// context. The given session state will replace the current Link session
+    /// state, and modifications will be communicated to other peers.
+    pub fn commit_session_state(&self, state: &SessionState) {
+        // Safety: Both handles are valid. AudioLink's !Send guarantee ensures
+        // we're on the designated audio thread.
+        unsafe { sys::abl_link_commit_audio_session_state(self.link.handle, state.handle) }
+    }
+
+    /// Get the current Link clock time in microseconds.
+    ///
+    /// This is the same as [`Link::clock_micros`] but available on the audio
+    /// handle for convenience.
+    #[must_use]
+    pub fn clock_micros(&self) -> i64 {
+        // Safety: handle is valid.
+        unsafe { sys::abl_link_clock_micros(self.link.handle) }
     }
 }
 
