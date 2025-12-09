@@ -22,7 +22,11 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: espressif/idf-rust:esp32_latest
+    container:
+      image: espressif/idf-rust:esp32_latest
+      options: --user 1001:1001
+    env:
+      HOME: /home/esp
     steps:
       - name: Checkout
         uses: actions/checkout@v4
