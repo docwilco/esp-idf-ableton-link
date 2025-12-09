@@ -120,6 +120,7 @@
 //! GPL-2.0-or-later. See [LICENSE.md](LICENSE.md) for details.
 
 use core::marker::PhantomData;
+use std::ffi::c_void;
 
 mod sys {
     // Allow wildcard imports for the sys module since there is nothing else in
@@ -146,7 +147,6 @@ impl core::fmt::Display for LinkError {
     }
 }
 
-#[cfg(feature = "std")]
 impl std::error::Error for LinkError {}
 
 /// A safe wrapper around an Ableton Link instance.
@@ -184,6 +184,10 @@ pub struct Link {
     // PhantomData to prevent auto-impl of Send/Sync We explicitly impl Send
     // after verifying thread safety
     _marker: PhantomData<*mut ()>,
+    // Callback context pointers - we own these and must free them
+    num_peers_callback_ctx: Option<*mut c_void>,
+    tempo_callback_ctx: Option<*mut c_void>,
+    start_stop_callback_ctx: Option<*mut c_void>,
 }
 
 // Safety: We hold an abl_link struct containing a pointer to a heap-allocated
@@ -234,6 +238,9 @@ impl Link {
             Ok(Self {
                 handle,
                 _marker: PhantomData,
+                num_peers_callback_ctx: None,
+                tempo_callback_ctx: None,
+                start_stop_callback_ctx: None,
             })
         }
     }
@@ -389,6 +396,250 @@ impl Link {
         unsafe { sys::abl_link_commit_app_session_state(self.handle, state.handle) }
     }
 
+    /// Register a callback to be notified when the number of peers changes.
+    ///
+    /// The callback is invoked on a Link-managed thread whenever the number of
+    /// peers in the Link session changes.
+    ///
+    /// Setting a new callback replaces any previously registered callback.
+    /// Use [`clear_num_peers_callback`](Self::clear_num_peers_callback) to
+    /// unregister without setting a new one.
+    ///
+    /// # Arguments
+    ///
+    /// * `callback` - A closure that receives the new peer count.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use esp_idf_ableton_link::Link;
+    ///
+    /// let mut link = Link::new(120.0).unwrap();
+    /// link.set_num_peers_callback(|num_peers| {
+    ///     log::info!("Peer count changed: {}", num_peers);
+    /// });
+    /// link.enable();
+    /// ```
+    pub fn set_num_peers_callback<F>(&mut self, callback: F)
+    where
+        F: FnMut(u64) + Send + 'static,
+    {
+        // Save old context to drop after we've registered the new callback
+        let old_ctx = self.num_peers_callback_ctx.take();
+
+        // Box the closure and convert to raw pointer
+        let boxed: Box<dyn FnMut(u64) + Send> = Box::new(callback);
+        let context = Box::into_raw(Box::new(boxed)) as *mut c_void;
+        self.num_peers_callback_ctx = Some(context);
+
+        extern "C" fn trampoline(num_peers: u64, context: *mut c_void) {
+            // Catch panics to prevent unwinding across FFI boundary
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                // Safety: context is a valid pointer to Box<dyn FnMut(u64) + Send>
+                // that we created above. Link's mutex ensures no concurrent calls.
+                let callback =
+                    unsafe { &mut *(context as *mut Box<dyn FnMut(u64) + Send>) };
+                callback(num_peers);
+            }));
+        }
+
+        // Safety: handle is valid, trampoline has correct signature, context is valid.
+        // This atomically replaces the old callback, so it's safe to drop old_ctx after.
+        unsafe {
+            sys::abl_link_set_num_peers_callback(self.handle, Some(trampoline), context);
+        }
+
+        // Now safe to drop old context since C++ side no longer references it
+        if let Some(old) = old_ctx {
+            unsafe {
+                drop(Box::from_raw(old as *mut Box<dyn FnMut(u64) + Send>));
+            }
+        }
+    }
+
+    /// Clear the num peers callback without setting a new one.
+    ///
+    /// After calling this, no callback will be invoked when the peer count changes.
+    pub fn clear_num_peers_callback(&mut self) {
+        if let Some(ctx) = self.num_peers_callback_ctx.take() {
+            // Safety: handle is valid.
+            unsafe {
+                sys::abl_link_set_num_peers_callback(
+                    self.handle,
+                    None,
+                    std::ptr::null_mut(),
+                );
+            }
+            // Safety: ctx was created by Box::into_raw in set_num_peers_callback.
+            unsafe {
+                drop(Box::from_raw(ctx as *mut Box<dyn FnMut(u64) + Send>));
+            }
+        }
+    }
+
+    /// Register a callback to be notified when the session tempo changes.
+    ///
+    /// The callback is invoked on a Link-managed thread whenever the tempo
+    /// of the Link session changes.
+    ///
+    /// Setting a new callback replaces any previously registered callback.
+    /// Use [`clear_tempo_callback`](Self::clear_tempo_callback) to unregister
+    /// without setting a new one.
+    ///
+    /// # Arguments
+    ///
+    /// * `callback` - A closure that receives the new tempo in BPM.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use esp_idf_ableton_link::Link;
+    ///
+    /// let mut link = Link::new(120.0).unwrap();
+    /// link.set_tempo_callback(|tempo| {
+    ///     log::info!("Tempo changed: {} BPM", tempo);
+    /// });
+    /// link.enable();
+    /// ```
+    pub fn set_tempo_callback<F>(&mut self, callback: F)
+    where
+        F: FnMut(f64) + Send + 'static,
+    {
+        // Save old context to drop after we've registered the new callback
+        let old_ctx = self.tempo_callback_ctx.take();
+
+        // Box the closure and convert to raw pointer
+        let boxed: Box<dyn FnMut(f64) + Send> = Box::new(callback);
+        let context = Box::into_raw(Box::new(boxed)) as *mut c_void;
+        self.tempo_callback_ctx = Some(context);
+
+        extern "C" fn trampoline(tempo: f64, context: *mut c_void) {
+            // Catch panics to prevent unwinding across FFI boundary
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                // Safety: context is a valid pointer to Box<dyn FnMut(f64) + Send>
+                // that we created above. Link's mutex ensures no concurrent calls.
+                let callback =
+                    unsafe { &mut *(context as *mut Box<dyn FnMut(f64) + Send>) };
+                callback(tempo);
+            }));
+        }
+
+        // Safety: handle is valid, trampoline has correct signature, context is valid.
+        // This atomically replaces the old callback, so it's safe to drop old_ctx after.
+        unsafe {
+            sys::abl_link_set_tempo_callback(self.handle, Some(trampoline), context);
+        }
+
+        // Now safe to drop old context since C++ side no longer references it
+        if let Some(old) = old_ctx {
+            unsafe {
+                drop(Box::from_raw(old as *mut Box<dyn FnMut(f64) + Send>));
+            }
+        }
+    }
+
+    /// Clear the tempo callback without setting a new one.
+    ///
+    /// After calling this, no callback will be invoked when the tempo changes.
+    pub fn clear_tempo_callback(&mut self) {
+        if let Some(ctx) = self.tempo_callback_ctx.take() {
+            // Safety: handle is valid.
+            unsafe {
+                sys::abl_link_set_tempo_callback(self.handle, None, std::ptr::null_mut());
+            }
+            // Safety: ctx was created by Box::into_raw in set_tempo_callback.
+            unsafe {
+                drop(Box::from_raw(ctx as *mut Box<dyn FnMut(f64) + Send>));
+            }
+        }
+    }
+
+    /// Register a callback to be notified when the start/stop state changes.
+    ///
+    /// The callback is invoked on a Link-managed thread whenever the transport
+    /// start/stop state of the Link session changes.
+    ///
+    /// Setting a new callback replaces any previously registered callback.
+    /// Use [`clear_start_stop_callback`](Self::clear_start_stop_callback) to
+    /// unregister without setting a new one.
+    ///
+    /// # Arguments
+    ///
+    /// * `callback` - A closure that receives `true` when playing, `false` when stopped.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use esp_idf_ableton_link::Link;
+    ///
+    /// let mut link = Link::new(120.0).unwrap();
+    /// link.enable_start_stop_sync(true);
+    /// link.set_start_stop_callback(|is_playing| {
+    ///     if is_playing {
+    ///         log::info!("Transport started");
+    ///     } else {
+    ///         log::info!("Transport stopped");
+    ///     }
+    /// });
+    /// link.enable();
+    /// ```
+    pub fn set_start_stop_callback<F>(&mut self, callback: F)
+    where
+        F: FnMut(bool) + Send + 'static,
+    {
+        // Save old context to drop after we've registered the new callback
+        let old_ctx = self.start_stop_callback_ctx.take();
+
+        // Box the closure and convert to raw pointer
+        let boxed: Box<dyn FnMut(bool) + Send> = Box::new(callback);
+        let context = Box::into_raw(Box::new(boxed)) as *mut c_void;
+        self.start_stop_callback_ctx = Some(context);
+
+        extern "C" fn trampoline(is_playing: bool, context: *mut c_void) {
+            // Catch panics to prevent unwinding across FFI boundary
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                // Safety: context is a valid pointer to Box<dyn FnMut(bool) + Send>
+                // that we created above. Link's mutex ensures no concurrent calls.
+                let callback =
+                    unsafe { &mut *(context as *mut Box<dyn FnMut(bool) + Send>) };
+                callback(is_playing);
+            }));
+        }
+
+        // Safety: handle is valid, trampoline has correct signature, context is valid.
+        // This atomically replaces the old callback, so it's safe to drop old_ctx after.
+        unsafe {
+            sys::abl_link_set_start_stop_callback(self.handle, Some(trampoline), context);
+        }
+
+        // Now safe to drop old context since C++ side no longer references it
+        if let Some(old) = old_ctx {
+            unsafe {
+                drop(Box::from_raw(old as *mut Box<dyn FnMut(bool) + Send>));
+            }
+        }
+    }
+
+    /// Clear the start/stop callback without setting a new one.
+    ///
+    /// After calling this, no callback will be invoked when the start/stop state changes.
+    pub fn clear_start_stop_callback(&mut self) {
+        if let Some(ctx) = self.start_stop_callback_ctx.take() {
+            // Safety: handle is valid.
+            unsafe {
+                sys::abl_link_set_start_stop_callback(
+                    self.handle,
+                    None,
+                    std::ptr::null_mut(),
+                );
+            }
+            // Safety: ctx was created by Box::into_raw in set_start_stop_callback.
+            unsafe {
+                drop(Box::from_raw(ctx as *mut Box<dyn FnMut(bool) + Send>));
+            }
+        }
+    }
+
     /// Get the current Link clock time in microseconds.
     ///
     /// This returns the current time from Link's internal clock, which is
@@ -418,6 +669,14 @@ impl Link {
 impl Drop for Link {
     fn drop(&mut self) {
         log::debug!("Destroying Link instance at {:p}", self.handle.impl_);
+
+        // Clear all callbacks to free their contexts.
+        // This also unregisters them from Link, which is important because
+        // the C++ side might still try to call them during destruction.
+        self.clear_num_peers_callback();
+        self.clear_tempo_callback();
+        self.clear_start_stop_callback();
+
         // Safety: handle is valid (checked in new()). After this call, handle
         // is invalid but that's fine since we're being dropped.
         unsafe { sys::abl_link_destroy(self.handle) }

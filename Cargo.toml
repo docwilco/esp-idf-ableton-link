@@ -15,7 +15,6 @@ log = "0.4"
 
 [features]
 default = []
-std = []
 
 [build-dependencies]
 embuild = "0.33"
