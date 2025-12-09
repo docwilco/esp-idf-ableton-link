@@ -4,9 +4,9 @@ fn main() {
 
     println!("cargo:rerun-if-env-changed=ESP_IDF_SYS_ROOT_CRATE");
 
-    if std::env::var("ESP_IDF_SYS_ROOT_CRATE").is_err() {
-        panic!(
-            r#"
+    assert!(
+        std::env::var("ESP_IDF_SYS_ROOT_CRATE").is_ok(),
+        r#"
 ================================================================================
                     ESP-IDF ABLETON LINK CONFIGURATION ERROR
 ================================================================================
@@ -55,14 +55,14 @@ https://github.com/esp-rs/esp-idf-sys/blob/master/BUILD-OPTIONS.md#extra-esp-idf
 
 ================================================================================
 "#
-        );
-    }
+    );
 
     // Check that C++ exceptions are enabled (required for Ableton Link)
-    if let Some(cfg_args) = embuild::espidf::sysenv::cfg_args() {
-        if cfg_args.get("esp_idf_compiler_cxx_exceptions").is_none() {
-            panic!(
-                r#"
+    let cfg_args = embuild::espidf::sysenv::cfg_args()
+        .expect("Failed to get ESP-IDF cfg_args from esp-idf-sys");
+    assert!(
+        cfg_args.get("esp_idf_compiler_cxx_exceptions").is_some(),
+        r"
 ================================================================================
                     ESP-IDF ABLETON LINK CONFIGURATION ERROR
 ================================================================================
@@ -93,8 +93,6 @@ For more information about ESP-IDF sdkconfig options, see:
 https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/kconfig.html
 
 ================================================================================
-"#
-            );
-        }
-    }
+"
+    );
 }
