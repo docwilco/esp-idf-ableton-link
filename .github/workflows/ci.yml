@@ -14,8 +14,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
       - name: Install cargo-readme
-        run: cargo install cargo-readme
+        run: command -v cargo-readme || cargo install cargo-readme
 
       - name: Check README is up to date
         run: |

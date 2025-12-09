@@ -22,15 +22,13 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    container: espressif/idf-rust:esp32_latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Rust toolchain for Xtensa
-        uses: esp-rs/xtensa-toolchain@v1.6
-        with:
-          default: true
-          ldproxy: true
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
 
       - name: Build documentation
         env:
@@ -38,7 +36,8 @@ jobs:
           ESP_IDF_SYS_ROOT_CRATE: esp-idf-ableton-link
           ESP_IDF_SDKCONFIG_DEFAULTS: sdkconfig.defaults.documentation
         run: |
-          cargo +esp doc --target xtensa-esp32-espidf -Zbuild-std=std
+          . /home/esp/export-esp.sh
+          cargo doc --target xtensa-esp32-espidf -Zbuild-std=std
           # Add redirect index.html to the crate's documentation
           echo '<meta http-equiv="refresh" content="0; url=esp_idf_ableton_link/index.html">' > target/xtensa-esp32-espidf/doc/index.html
 
