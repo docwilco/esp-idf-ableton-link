@@ -8,16 +8,7 @@ This project provides safe Rust bindings for Ableton Link on ESP32 hardware usin
 
 ### Project Structure
   
-ESP-IDF component wrapper for Ableton Link
-- Contains Ableton Link as git submodule at `ableton-link/`
-- Uses provided C wrapper around C++ Link API at `ableton-link/extensions/abl_link/`
-- Does NOT use any pre-existing Link ports or wrappers outside the Ableton Link repository
-
-### Git Submodule Configuration
-
-The Ableton Link submodule has two remotes:
-- `upstream`: Official Ableton repository (git@github.com:Ableton/link.git)
-- `origin`: Fork repository (git@github.com:docwilco/ableton-link.git)
+Uses esp_abl_link remote component, which in turn wraps the abl_link C wrapper around the Ableton Link C++ API.
 
 ## Development Environment
 
@@ -31,14 +22,11 @@ The Ableton Link submodule has two remotes:
 ### Rust
 - Edition 2021
 - Follow standard Rust naming conventions
-- Use `#![no_std]` where appropriate for embedded contexts
 - Profile settings optimized for embedded
 
 ## Important Constraints
 
-1. **Do not use existing Link ports**: All existing Rust or embedded Link attempts have been evaluated and rejected
-3. **Ask before expanding**: Any API additions or major architectural changes require approval
-4. **No std in sys crate if possible**: esp-idf-ableton-link uses `#![no_std]`
+1. **Ask before expanding**: Any API additions or major architectural changes require approval
 
 ## Testing & Validation
 
@@ -48,7 +36,6 @@ The Ableton Link submodule has two remotes:
 ## Git Workflow
 
 - Commit after completing logical units of work (e.g., after implementing a feature, fixing a bug, or completing a refactor)
-- Use conventional commit format when appropriate (feat:, fix:, refactor:, etc.)
 - Keep commits focused on single concerns
 - Do NOT commit after every single line change - batch related changes together into meaningful commits
 
@@ -63,10 +50,11 @@ The Ableton Link submodule has two remotes:
 - esp-idf-sys and related crates are used for ESP32 bindings: Follow their conventions where applicable.
 - Use `esp-idf-svc` for higher-level services like networking.
 - Use ESP-IDF logging macros for logging (e.g., `info!`, `warn!`, `error!`). Set max log level to Debug for development. Set default log level to Info.
-- esp-idf-sys uses embuild-rs for build configuration: Refer to its documentation for custom build settings. And make sure to properly use it for building our C++ wrapper and esp-idf-ableton-link crate.
-- esp-idf-ableton-link is built as an ESP-IDF extra component using the `package.metadata.esp-idf-sys.extra_components` mechanism
 
-## Project TODOs
+## Documentation
 
-- Fixup commit messages
-- Split out the ESP-IDF component
+- README.md is generated from lib.rs doc comments using cargo-readme
+- To regenerate: `cargo readme --no-indent-headings --no-license -o README.md`
+- The template file `README.tpl` adds the GitHub Pages badge
+- Edit documentation in `src/lib.rs`, not directly in README.md
+

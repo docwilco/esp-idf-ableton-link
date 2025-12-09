@@ -1,12 +1,12 @@
 # esp-idf-ableton-link
 
-Safe Rust wrapper for [Ableton Link](https://www.ableton.com/en/link/) on ESP32 via ESP-IDF.
-
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://docwilco.github.io/esp-idf-ableton-link/)
 
-## Overview
+Safe Rust wrapper for Ableton Link on ESP32 via ESP-IDF.
 
-This crate provides a safe Rust API for Ableton Link, enabling musical applications to synchronize tempo and beat phase over a local network on ESP32 hardware.
+This crate provides a safe Rust API for [Ableton
+Link](https://www.ableton.com/en/link/), enabling musical applications to
+synchronize tempo and beat phase over a local network on ESP32 hardware.
 
 ## Supported Hardware
 
@@ -16,17 +16,15 @@ Currently only Xtensa-based ESP32 chips are supported:
 - ESP32-S2
 - ESP32-S3
 
-## Documentation
-
-API documentation is available at: https://docwilco.github.io/esp-idf-ableton-link/
-
 ## Usage
 
-It is recommended to start your project using the [esp-idf-template](https://github.com/esp-rs/esp-idf-template?tab=readme-ov-file#generate-the-project).
+It is recommended to start your project using the
+[esp-idf-template](https://github.com/esp-rs/esp-idf-template?tab=readme-ov-file#generate-the-project).
 
 ### Required Configuration
 
-This crate requires specific configuration in your ESP32 project. All four steps below are mandatory.
+This crate requires specific configuration in your ESP32 project. All four
+steps below are mandatory.
 
 #### 1. Add the crate and build dependency
 
@@ -37,7 +35,9 @@ cargo add --build embuild
 
 #### 2. Set `ESP_IDF_SYS_ROOT_CRATE` in `.cargo/config.toml`
 
-The `ESP_IDF_SYS_ROOT_CRATE` environment variable must be set so that `esp-idf-sys` can discover the extra component configuration from this crate.
+The `ESP_IDF_SYS_ROOT_CRATE` environment variable must be set so that
+`esp-idf-sys` can discover the extra component configuration from this
+crate.
 
 Add to your project's `.cargo/config.toml`:
 
@@ -56,29 +56,37 @@ ESP_IDF_VERSION = "v5.3.3"
 ESP_IDF_SYS_ROOT_CRATE = "your-firmware-crate-name"
 ```
 
-Replace `your-firmware-crate-name` with the `name` field from your project's `Cargo.toml`.
+Replace `your-firmware-crate-name` with the `name` field from your
+project's `Cargo.toml`.
 
-For more information, see the [ESP-IDF configuration documentation](https://github.com/esp-rs/esp-idf-sys/blob/master/BUILD-OPTIONS.md#esp-idf-configuration).
+For more information, see the [ESP-IDF configuration
+documentation](https://github.com/esp-rs/esp-idf-sys/blob/master/BUILD-OPTIONS.md#esp-idf-configuration).
 
 #### 3. Enable C++ Exceptions in `sdkconfig.defaults`
 
-Ableton Link requires C++ exception support. Add this to your project's `sdkconfig.defaults`:
+Ableton Link requires C++ exception support. Add this to your project's
+`sdkconfig.defaults`:
 
 ```
 CONFIG_COMPILER_CXX_EXCEPTIONS=y
 ```
 
-You may also want to increase the main task stack size (Rust often needs more than the default 3KB):
+You may also want to increase the main task stack size (Rust often needs
+more than the default 3KB):
 
 ```
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8000
 ```
 
-For more information about ESP-IDF sdkconfig options, see the [ESP-IDF KConfig reference](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/kconfig.html).
+For more information about ESP-IDF sdkconfig options, see the [ESP-IDF
+KConfig
+reference](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/kconfig.html).
 
 #### 4. Add `embuild::espidf::sysenv::output()` to your `build.rs`
 
-Your project's `build.rs` must call `embuild::espidf::sysenv::output()` to propagate ESP-IDF configuration flags (such as `esp_idf_compiler_cxx_exceptions`) to the Rust compiler:
+Your project's `build.rs` must call `embuild::espidf::sysenv::output()` to
+propagate ESP-IDF configuration flags (such as
+`esp_idf_compiler_cxx_exceptions`) to the Rust compiler:
 
 ```rust
 fn main() {
