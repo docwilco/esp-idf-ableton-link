@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: espressif/idf-rust:esp32_latest
-      options: --user 1001:1001
+      options: --user root
     env:
       HOME: /home/esp
     steps:
