@@ -10,6 +10,7 @@ keywords = ["esp32", "esp-idf", "ableton", "link", "sync"]
 categories = ["embedded", "network-programming"]
 
 [dependencies]
+delegate = "0.13.5"
 esp-idf-sys = "0.36"
 log = "0.4"
 
