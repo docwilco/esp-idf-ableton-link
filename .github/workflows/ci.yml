@@ -7,18 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  fmt:
-    name: Check formatting
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Check formatting
-        run: cargo fmt --check
-
-  readme-check:
-    name: Check README is up to date
+  all-the-things:
+    name: Check the things
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -26,6 +16,11 @@ jobs:
 
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
+
+      - name: Install Rust nightly
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: nightly
 
       - name: Install cargo-readme
         run: command -v cargo-readme || cargo install cargo-readme
@@ -41,3 +36,6 @@ jobs:
             exit 1
           fi
           echo "README.md is up to date"
+
+      - name: Check formatting
+        run: cargo +nightly fmt --check
