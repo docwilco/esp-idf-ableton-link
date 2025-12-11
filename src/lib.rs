@@ -374,11 +374,7 @@ pub enum TransportState {
 
 impl From<bool> for TransportState {
     fn from(playing: bool) -> Self {
-        if playing {
-            Self::Play
-        } else {
-            Self::Stop
-        }
+        if playing { Self::Play } else { Self::Stop }
     }
 }
 

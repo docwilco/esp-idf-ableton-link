@@ -1,7 +1,6 @@
 //! Session state for Link synchronization.
 
-use crate::time::Instant;
-use crate::TransportState;
+use crate::{TransportState, time::Instant};
 
 mod sys {
     #[allow(clippy::wildcard_imports)]

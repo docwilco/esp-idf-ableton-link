@@ -1,5 +1,12 @@
 #!/bin/bash
 
+# Check formatting
+if ! cargo +esp fmt --check; then
+    echo ""
+    echo "Formatting check failed. Run 'cargo +esp fmt' to fix."
+    exit 1
+fi
+
 # Regenerate README.md from lib.rs documentation
 cargo readme -o README.md
 
