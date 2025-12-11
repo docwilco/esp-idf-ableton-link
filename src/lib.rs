@@ -151,6 +151,47 @@ use delegate::delegate;
 
 type Callback<T> = Mutex<Option<Box<dyn FnMut(T) + Send>>>;
 
+/// The transport state: [`Play`](Self::Play) or [`Stop`](Self::Stop).
+///
+/// This represents the *target* transport state, which may already be in effect
+/// or scheduled for the future. Use [`SessionState::transport_state_time`] to
+/// determine when the state took/takes effect:
+///
+/// - **Time in the past**: The state is currently active (already playing/stopped).
+/// - **Time in the future**: The state is scheduled (will start playing/stop at that time).
+///
+/// Used with [`SessionState::transport_state`], [`SessionState::set_transport_state_at`],
+/// and related methods.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TransportState {
+    /// Transport is playing or scheduled to play.
+    ///
+    /// Check [`SessionState::transport_state_time`] to determine if playback
+    /// has already started (time in past) or is scheduled (time in future).
+    Play,
+    /// Transport is stopped or scheduled to stop.
+    ///
+    /// Check [`SessionState::transport_state_time`] to determine if playback
+    /// has already stopped (time in past) or will stop (time in future).
+    Stop,
+}
+
+impl From<bool> for TransportState {
+    fn from(playing: bool) -> Self {
+        if playing {
+            Self::Play
+        } else {
+            Self::Stop
+        }
+    }
+}
+
+impl From<TransportState> for bool {
+    fn from(state: TransportState) -> Self {
+        matches!(state, TransportState::Play)
+    }
+}
+
 /// A point in time on the Link clock, measured in microseconds.
 ///
 /// `LinkTime` represents an absolute timestamp from Link's internal clock,
@@ -160,7 +201,7 @@ type Callback<T> = Mutex<Option<Box<dyn FnMut(T) + Send>>>;
 /// # Creating `LinkTime` values
 ///
 /// You typically obtain a `LinkTime` from [`Link::clock_now`] or
-/// [`SessionState::time_for_is_playing`]:
+/// [`SessionState::transport_state_time`]:
 ///
 /// ```no_run
 /// use esp_idf_ableton_link::Link;
@@ -517,6 +558,20 @@ extern "C" fn trampoline<T>(value: T, context: *mut c_void) {
 /// local network. Multiple Link-enabled applications can play in time without
 /// requiring any configuration.
 ///
+/// # Transport Sync
+///
+/// In addition to tempo and beat synchronization, Link supports **transport sync**
+/// — sharing the play/stop state across peers. When enabled via
+/// [`enable_transport_sync`](Self::enable_transport_sync), applications can start
+/// and stop playback together.
+///
+/// Transport state is accessed and modified through [`SessionState`]:
+/// - [`SessionState::transport_state`] / [`SessionState::transport_state_time`]
+/// - [`SessionState::start_transport_at`] / [`SessionState::stop_transport_at`] / [`SessionState::set_transport_state_at`]
+///
+/// Use [`set_transport_state_callback`](Self::set_transport_state_callback) to be
+/// notified when peers change transport state.
+///
 /// # Thread Safety
 ///
 /// `Link` is both `Send` and `Sync`. All underlying C++ methods use internal
@@ -667,25 +722,27 @@ impl Link {
         unsafe { sys::abl_link_num_peers(self.handle) }
     }
 
-    /// Check if start/stop synchronization is enabled.
+    /// Check if transport synchronization is enabled.
     ///
     /// When enabled, transport start/stop state is shared with other peers
-    /// in the session.
+    /// in the session. See the [Transport Sync](#transport-sync) section for
+    /// more details.
     ///
     /// # Returns
     ///
-    /// `true` if start/stop sync is enabled, `false` otherwise.
+    /// `true` if transport sync is enabled, `false` otherwise.
     #[must_use]
-    pub fn is_start_stop_sync_enabled(&self) -> bool {
+    pub fn is_transport_sync_enabled(&self) -> bool {
         // Safety: handle is valid (checked in new()).
         unsafe { sys::abl_link_is_start_stop_sync_enabled(self.handle) }
     }
 
-    /// Enable start/stop synchronization.
+    /// Enable transport synchronization.
     ///
     /// When enabled, transport start/stop state is shared with other peers
     /// in the session. This allows multiple applications to start and stop
-    /// playback together.
+    /// playback together. See the [Transport Sync](#transport-sync) section
+    /// for more details.
     ///
     /// # Example
     ///
@@ -693,31 +750,33 @@ impl Link {
     /// use esp_idf_ableton_link::Link;
     ///
     /// let link = Link::new(120.0).unwrap();
-    /// link.enable_start_stop_sync();
+    /// link.enable_transport_sync();
     /// ```
-    pub fn enable_start_stop_sync(&self) {
-        self.set_start_stop_sync_enabled(true);
+    pub fn enable_transport_sync(&self) {
+        self.set_transport_sync_enabled(true);
     }
 
-    /// Disable start/stop synchronization.
+    /// Disable transport synchronization.
     ///
-    /// See also [`enable_start_stop_sync`](Self::enable_start_stop_sync).
-    pub fn disable_start_stop_sync(&self) {
-        self.set_start_stop_sync_enabled(false);
+    /// See also [`enable_transport_sync`](Self::enable_transport_sync).
+    pub fn disable_transport_sync(&self) {
+        self.set_transport_sync_enabled(false);
     }
 
-    /// Enable or disable start/stop synchronization.
+    /// Enable or disable transport synchronization.
     ///
     /// This is useful when the enabled state comes from a variable.
     /// For static enable/disable, prefer
-    /// [`enable_start_stop_sync`](Self::enable_start_stop_sync) and
-    /// [`disable_start_stop_sync`](Self::disable_start_stop_sync) for
+    /// [`enable_transport_sync`](Self::enable_transport_sync) and
+    /// [`disable_transport_sync`](Self::disable_transport_sync) for
     /// readability.
+    ///
+    /// See the [Transport Sync](#transport-sync) section for more details.
     ///
     /// # Arguments
     ///
-    /// * `enabled` - `true` to enable start/stop sync, `false` to disable.
-    pub fn set_start_stop_sync_enabled(&self, enabled: bool) {
+    /// * `enabled` - `true` to enable transport sync, `false` to disable.
+    pub fn set_transport_sync_enabled(&self, enabled: bool) {
         // Safety: handle is valid (checked in new()).
         unsafe { sys::abl_link_enable_start_stop_sync(self.handle, enabled) }
     }
@@ -766,6 +825,13 @@ impl Link {
     ///
     /// The given session state will replace the current Link session state.
     /// Modifications will be communicated to other peers in the session.
+    ///
+    /// # Note
+    ///
+    /// This method takes `&mut self` to prevent calling it while an
+    /// [`AudioLink`] handle exists. The Link library recommends against
+    /// modifying session state from both audio and application threads
+    /// concurrently.
     ///
     /// # Example
     ///
@@ -913,18 +979,24 @@ impl Link {
         *self.tempo_callback.lock().unwrap() = None;
     }
 
-    /// Register a callback to be notified when the start/stop state changes.
+    /// Register a callback to be notified when the transport state changes.
     ///
-    /// The callback is invoked on a Link-managed thread whenever the transport
-    /// start/stop state of the Link session changes.
+    /// The callback is invoked on a Link-managed thread whenever the *intent*
+    /// of the transport state changes. This happens immediately when a peer
+    /// commits a new transport state, even if the state change is scheduled
+    /// for the future.
+    ///
+    /// To determine *when* the transport state takes effect, capture the
+    /// session state and call [`SessionState::transport_state_time`]. This
+    /// enables scheduling actions to coincide with the actual start/stop time.
     ///
     /// Setting a new callback replaces any previously registered callback.
-    /// Use [`clear_start_stop_callback`](Self::clear_start_stop_callback) to
-    /// unregister without setting a new one.
+    /// Use [`clear_transport_state_callback`](Self::clear_transport_state_callback)
+    /// to unregister without setting a new one.
     ///
     /// # Arguments
     ///
-    /// * `callback` - A closure that receives `true` when playing, `false` when stopped.
+    /// * `callback` - A closure that receives the new [`TransportState`].
     ///
     /// # Panics
     ///
@@ -935,25 +1007,41 @@ impl Link {
     ///
     /// # Example
     ///
-    /// ```no_run
-    /// use esp_idf_ableton_link::Link;
+    /// ```ignore
+    /// use esp_idf_ableton_link::{Link, TransportState};
+    /// use std::sync::mpsc;
     ///
+    /// let (tx, rx) = mpsc::channel();
     /// let mut link = Link::new(120.0).unwrap();
-    /// link.enable_start_stop_sync();
-    /// link.set_start_stop_callback(|is_playing| {
-    ///     if is_playing {
-    ///         log::info!("Transport started");
-    ///     } else {
-    ///         log::info!("Transport stopped");
-    ///     }
+    /// link.enable_transport_sync();
+    /// link.set_transport_state_callback(move |state| {
+    ///     // Notify main thread of state change
+    ///     let _ = tx.send(state);
     /// });
     /// link.enable();
+    ///
+    /// // In main loop, handle transport changes
+    /// if let Ok(state) = rx.try_recv() {
+    ///     let session = link.capture_app_session_state().unwrap();
+    ///     let start_time = session.transport_state_time();
+    ///     let now = link.clock_now();
+    ///     
+    ///     if state == TransportState::Play && start_time > now {
+    ///         // Transport will start in the future - schedule action
+    ///         let delay_us = (start_time - now).as_micros();
+    ///         // esp_timer_start_once(timer_handle, delay_us as u64);
+    ///     }
+    /// }
     /// ```
-    pub fn set_start_stop_callback<F>(&self, callback: F)
+    pub fn set_transport_state_callback<F>(&self, mut callback: F)
     where
-        F: FnMut(bool) + Send + 'static,
+        F: FnMut(TransportState) + Send + 'static,
     {
-        let boxed: Box<dyn FnMut(bool) + Send> = Box::new(callback);
+        // Wrap the user's callback to convert bool -> TransportState
+        let wrapper = move |is_playing: bool| {
+            callback(TransportState::from(is_playing));
+        };
+        let boxed: Box<dyn FnMut(bool) + Send> = Box::new(wrapper);
 
         // Lock mutex and replace callback. Any in-flight trampoline call
         // is blocked until we release the lock.
@@ -969,15 +1057,15 @@ impl Link {
         }
     }
 
-    /// Clear the start/stop callback without setting a new one.
+    /// Clear the transport state callback without setting a new one.
     ///
-    /// After calling this, no callback will be invoked when the start/stop state changes.
+    /// After calling this, no callback will be invoked when the transport state changes.
     ///
     /// # Panics
     ///
     /// Panics if the internal mutex is poisoned. See
-    /// [`set_start_stop_callback`](Self::set_start_stop_callback) for details.
-    pub fn clear_start_stop_callback(&self) {
+    /// [`set_transport_state_callback`](Self::set_transport_state_callback) for details.
+    pub fn clear_transport_state_callback(&self) {
         // Lock mutex and clear callback. Any in-flight trampoline call
         // is blocked until we release the lock.
         *self.start_stop_callback.lock().unwrap() = None;
@@ -1112,18 +1200,18 @@ impl AudioLink<'_> {
             #[must_use]
             pub fn num_peers(&self) -> u64;
 
-            /// See [`Link::is_start_stop_sync_enabled`]. This method is realtime-safe.
+            /// See [`Link::is_transport_sync_enabled`]. This method is realtime-safe.
             #[must_use]
-            pub fn is_start_stop_sync_enabled(&self) -> bool;
+            pub fn is_transport_sync_enabled(&self) -> bool;
 
-            /// See [`Link::enable_start_stop_sync`]. This method is realtime-safe.
-            pub fn enable_start_stop_sync(&self);
+            /// See [`Link::enable_transport_sync`]. This method is realtime-safe.
+            pub fn enable_transport_sync(&self);
 
-            /// See [`Link::disable_start_stop_sync`]. This method is realtime-safe.
-            pub fn disable_start_stop_sync(&self);
+            /// See [`Link::disable_transport_sync`]. This method is realtime-safe.
+            pub fn disable_transport_sync(&self);
 
-            /// See [`Link::set_start_stop_sync_enabled`]. This method is realtime-safe.
-            pub fn set_start_stop_sync_enabled(&self, enabled: bool);
+            /// See [`Link::set_transport_sync_enabled`]. This method is realtime-safe.
+            pub fn set_transport_sync_enabled(&self, enabled: bool);
         }
     }
 
@@ -1172,6 +1260,151 @@ impl AudioLink<'_> {
 /// transport state. It provides methods to read and modify tempo, beat
 /// position, and transport (play/stop) state.
 ///
+/// # The Timeline
+///
+/// Link maintains a **timeline**—a linear function that maps wall-clock time to
+/// beat values. Internally, it's defined by three values:
+/// - **tempo** (beats per minute)
+/// - **beatOrigin** (a reference beat value)
+/// - **timeOrigin** (the corresponding reference time)
+///
+/// The beat at any time is computed as:
+/// `beat = beatOrigin + (time - timeOrigin) × (tempo / 60,000,000)`
+///
+/// This means the timeline extends infinitely in both directions. When you
+/// "request a beat at a time," you're not setting a single value—you're
+/// **shifting the entire timeline** so that the specified beat aligns with
+/// the specified time. This shift affects beat values at all times (past,
+/// present, and future).
+///
+/// # Transport State (Start/Stop Sync)
+///
+/// Separately from the timeline, Link can synchronize transport state
+/// (playing vs stopped). This is an **independent** piece of state consisting
+/// of:
+/// - A [`TransportState`] ([`Play`](TransportState::Play) or [`Stop`](TransportState::Stop))
+/// - A timestamp (when that state took/takes effect)
+///
+/// Transport state does **not** affect the timeline. The beat/time mapping
+/// continues unchanged regardless of whether transport is playing or stopped.
+/// Transport state is purely informational—it's up to your application to
+/// decide what "playing" and "stopped" mean (e.g., producing sound or not).
+///
+/// # Beats, Phase, and Quantum
+///
+/// Link uses a continuous beat timeline represented as `f64` values:
+///
+/// - **Beat**: A floating-point number where the integer part represents the
+///   beat number and the fractional part represents the position within that
+///   beat. For example, `4.75` means three-quarters of the way through beat 4.
+///   At 120 BPM, beat values increase by 2.0 per second.
+///
+/// - **Quantum**: The number of beats per musical cycle (typically a bar).
+///   Common values:
+///   - `4.0` for 4/4 time (most rock, pop, EDM, hip-hop)
+///   - `3.0` for 3/4 time (waltz, some ballads)
+///   - `6.0` for 6/8 time (some folk, compound meters)
+///
+///   The quantum defines the cycle length for phase synchronization.
+///   **Important:** Quantum is a local parameter, not shared in the session.
+///   Each peer can use a different quantum.
+///
+/// - **Phase**: The position within the current cycle, in the range
+///   `[0, quantum)`. This is conceptually `beat % quantum` (but handles
+///   negative beats correctly).
+///
+/// ## Phase Synchronization and Quantum
+///
+/// Link synchronizes the **beat timeline** across all peers, but phase depends
+/// on the quantum each peer uses locally. Peers using the **same quantum** will
+/// have synchronized phases (their downbeats align). Peers using **different
+/// quantums** will only have aligned downbeats at beats that are multiples of
+/// both quantums.
+///
+/// For example, if Peer A uses quantum `4.0` and Peer B uses quantum `3.0`:
+/// - At beat 12.0: both are at phase 0.0 (downbeat) ✓
+/// - At beat 15.0: A is at phase 3.0, B is at phase 0.0 (downbeat) ✗
+/// - At beat 16.0: A is at phase 0.0 (downbeat), B is at phase 1.0 ✗
+/// - At beat 24.0: both are at phase 0.0 (downbeat) ✓
+///
+/// Their downbeats only align at multiples of 12 (the LCM of 3 and 4).
+///
+/// ## Beat Magnitude vs Phase
+///
+/// Each Link peer maintains its own beat timeline with an arbitrary origin.
+/// The absolute beat value (magnitude) will differ between peers, but the
+/// **phase** (position within the cycle) is synchronized across all peers.
+///
+/// For example, with quantum `4.0`:
+/// - Peer A might be at beat `12.5` (phase `0.5`)
+/// - Peer B might be at beat `100.5` (phase `0.5`)
+/// - Peer C might be at beat `0.5` (phase `0.5`)
+///
+/// All three are synchronized: they're all halfway through the first beat of
+/// their respective bars.
+///
+/// ## Practical Implications
+///
+/// - Use [`phase_at_time`](Self::phase_at_time) when you need to know where
+///   you are in a bar/cycle (e.g., for triggering events on the downbeat).
+/// - Use [`beat_at_time`](Self::beat_at_time) when you need to track continuous
+///   progress or count beats locally.
+/// - Use [`request_beat_at_time`](Self::request_beat_at_time) to adjust your
+///   local beat value while preserving phase alignment with the session.
+///
+/// ## Examples
+///
+/// ### Triggering on the Downbeat
+///
+/// To find the exact time of the next downbeat and schedule an action:
+///
+/// ```ignore
+/// let quantum = 4.0; // 4/4 time
+/// let state = link.capture_app_session_state();
+///
+/// // Find the next downbeat after the current time
+/// let now = link.clock_now();
+/// let current_beat = state.beat_at_time(now, quantum);
+/// let current_phase = state.phase_at_time(now, quantum);
+/// let next_downbeat_beat = current_beat + (quantum - current_phase);
+/// let next_downbeat_time = state.time_at_beat(next_downbeat_beat, quantum);
+///
+/// // Compute delay for use with ESP-IDF timer APIs
+/// let delay_us = (next_downbeat_time - now).as_micros();
+/// // esp_timer_start_once(timer_handle, delay_us as u64);
+/// ```
+///
+/// ### Counting Beats Locally
+///
+/// To count how many beats have elapsed since your app started:
+///
+/// ```ignore
+/// let start_time = link.clock_now();
+/// let start_beat = state.beat_at_time(start_time, quantum);
+///
+/// // Later...
+/// let now = link.clock_now();
+/// let current_beat = state.beat_at_time(now, quantum);
+/// let beats_elapsed = current_beat - start_beat;
+/// ```
+///
+/// ### Aligning to a Specific Beat
+///
+/// To make your local beat counter start at 0 on the next downbeat:
+///
+/// ```ignore
+/// let quantum = 4.0;
+/// let now = link.clock_now();
+/// let mut state = link.capture_app_session_state();
+///
+/// // Request that beat 0.0 occurs at the current time.
+/// // - If alone: beat 0.0 is mapped to `now` immediately.
+/// // - If with peers: beat 0.0 is mapped to the next time the session
+/// //   phase is 0.0 (the next downbeat), preserving sync.
+/// state.request_beat_at_time(0.0, now, quantum);
+/// link.commit_app_session_state(&state);
+/// ```
+///
 /// # Usage
 ///
 /// 1. Capture a session state with [`Link::capture_app_session_state`]
@@ -1210,6 +1443,9 @@ impl SessionState {
     }
 
     /// Set the timeline tempo to the given BPM value.
+    ///
+    /// Changes are local to this snapshot until committed with
+    /// [`Link::commit_app_session_state`] or [`AudioLink::commit_session_state`].
     ///
     /// # Arguments
     ///
@@ -1266,18 +1502,52 @@ impl SessionState {
         LinkTime(unsafe { sys::abl_link_time_at_beat(self.handle, beat, quantum) })
     }
 
-    /// Request to map the given beat to the given time (quantized launch).
+    /// Request a beat/time mapping, respecting session phase when not alone
+    /// in the session (quantized launch).
     ///
-    /// If no other peers are connected, the beat/time mapping happens
-    /// immediately. If there are other peers, this waits until the next time
-    /// the session phase matches the phase of the given beat, enabling
-    /// synchronized "quantized launch".
+    /// This only changes the local beat/time mapping; it does not affect other
+    /// peers' beat magnitudes.
+    ///
+    /// # Behavior
+    ///
+    /// - **When alone** (no other peers): The beat is mapped to `at_time`.
+    ///   After committing, `beat_at_time(at_time, quantum) == beat`.
+    ///
+    /// - **When not alone**: To avoid disrupting the session, the beat is
+    ///   mapped to the first time **≥ `at_time`** where the session phase
+    ///   matches the phase of `beat`. This enables "quantized launch" where
+    ///   events happen in-phase with the session.
+    ///
+    /// # When Does the Timeline Shift?
+    ///
+    /// The timeline shifts **immediately upon commit**, not at `at_time`. The
+    /// `at_time` parameter specifies which point on the timeline should have
+    /// the given beat value—the entire timeline shifts to satisfy this
+    /// constraint. This means `beat_at_time()` will return different values
+    /// for **all** times (past, present, and future) after committing.
+    ///
+    /// For example, if you map beat `0.0` to a time 2 beats in the future,
+    /// the current beat becomes `-2.0`. Negative beats are valid and represent
+    /// a "count-in" before beat zero.
+    ///
+    /// # Example
+    ///
+    /// With quantum `4.0`, if the session is currently at phase `2.5` and you
+    /// request beat `0.0` (phase `0.0`) at the current time:
+    /// - When alone: beat `0.0` is mapped to now immediately.
+    /// - When not alone: beat `0.0` is mapped to the next downbeat (when
+    ///   session phase reaches `0.0`), which is 1.5 beats in the future.
+    ///   The current beat becomes `-1.5`.
     ///
     /// # Arguments
     ///
-    /// * `beat` - The beat to map.
-    /// * `at_time` - The requested time.
+    /// * `beat` - The beat to map (only affects local magnitude, not session phase).
+    /// * `at_time` - The earliest time for the mapping (actual time may be later
+    ///   when not alone in the session).
     /// * `quantum` - The quantum (beats per cycle/bar).
+    ///
+    /// Changes are local to this snapshot until committed with
+    /// [`Link::commit_app_session_state`] or [`AudioLink::commit_session_state`].
     pub fn request_beat_at_time(&mut self, beat: f64, at_time: LinkTime, quantum: f64) {
         // Safety: handle is valid (checked in new()).
         unsafe {
@@ -1285,16 +1555,35 @@ impl SessionState {
         }
     }
 
-    /// Forcibly map the given beat to the given time for all peers.
+    /// Forcibly shift the session phase, affecting all peers.
     ///
-    /// **Warning:** This is anti-social behavior that disrupts other peers.
-    /// Only use this for bridging an external clock source into a Link session.
-    /// Most applications should use
+    /// Unlike [`request_beat_at_time`](Self::request_beat_at_time), this does not
+    /// wait for phase alignment when other peers are connected. It shifts the
+    /// session phase to match the requested beat's phase at the given time.
+    ///
+    /// # Effect on Other Peers
+    ///
+    /// Other peers' beat magnitudes are adjusted by the phase shift amount to
+    /// keep everyone synchronized at the new phase. For example, with quantum
+    /// `4.0`:
+    ///
+    /// - You are at beat 9.0 (phase 1.0) and force beat 0.0 (phase 0.0) at `now`
+    /// - Your local beat becomes 0.0, the session phase reference shifts by -1.0
+    /// - A peer at beat 109.0 (phase 1.0) becomes beat 108.0 (phase 0.0)
+    ///
+    /// The peer's magnitude changed by -1.0 to match the new session phase.
+    /// This causes a beat discontinuity—the peer's beat counter jumps.
+    ///
+    /// **Warning:** This is anti-social behavior. Only use this for bridging an
+    /// external clock source into a Link session. Most applications should use
     /// [`request_beat_at_time`](Self::request_beat_at_time) instead.
+    ///
+    /// Changes are local to this snapshot until committed with
+    /// [`Link::commit_app_session_state`] or [`AudioLink::commit_session_state`].
     ///
     /// # Arguments
     ///
-    /// * `beat` - The beat to map.
+    /// * `beat` - The beat to map (determines the new session phase).
     /// * `at_time` - The time to map it to.
     /// * `quantum` - The quantum (beats per cycle/bar).
     pub fn force_beat_at_time(&mut self, beat: f64, at_time: LinkTime, quantum: f64) {
@@ -1304,99 +1593,152 @@ impl SessionState {
         }
     }
 
-    /// Check if transport is playing.
+    /// Get the current transport state.
     ///
-    /// This is part of the start/stop sync feature.
+    /// This is part of the transport sync feature. Enable it via
+    /// [`Link::enable_transport_sync`] to share state with peers.
+    ///
+    /// The returned state indicates the *target* transport state, which may
+    /// already be in effect or scheduled for the future. Use
+    /// [`transport_state_time`](Self::transport_state_time) to determine when
+    /// the state took/takes effect.
+    ///
+    /// # Returns
+    ///
+    /// - [`TransportState::Play`] if transport is playing or scheduled to play.
+    /// - [`TransportState::Stop`] if transport is stopped or scheduled to stop.
     #[must_use]
-    pub fn is_playing(&self) -> bool {
+    pub fn transport_state(&self) -> TransportState {
         // Safety: handle is valid (checked in new()).
-        unsafe { sys::abl_link_is_playing(self.handle) }
+        unsafe { sys::abl_link_is_playing(self.handle) }.into()
     }
 
     /// Start transport at the specified time.
     ///
-    /// This is part of the start/stop sync feature.
+    /// This is part of the transport sync feature. Enable it via
+    /// [`Link::enable_transport_sync`] to share state with peers.
+    ///
+    /// Changes are local to this snapshot until committed with
+    /// [`Link::commit_app_session_state`] or [`AudioLink::commit_session_state`].
     ///
     /// # Arguments
     ///
     /// * `at_time` - The time at which playback starts.
-    pub fn play(&mut self, at_time: LinkTime) {
-        self.set_playing(true, at_time);
+    pub fn start_transport_at(&mut self, at_time: LinkTime) {
+        self.set_transport_state_at(TransportState::Play, at_time);
     }
 
     /// Stop transport at the specified time.
     ///
-    /// This is part of the start/stop sync feature.
+    /// This is part of the transport sync feature. Enable it via
+    /// [`Link::enable_transport_sync`] to share state with peers.
+    ///
+    /// Changes are local to this snapshot until committed with
+    /// [`Link::commit_app_session_state`] or [`AudioLink::commit_session_state`].
     ///
     /// # Arguments
     ///
     /// * `at_time` - The time at which playback stops.
-    pub fn stop(&mut self, at_time: LinkTime) {
-        self.set_playing(false, at_time);
+    pub fn stop_transport_at(&mut self, at_time: LinkTime) {
+        self.set_transport_state_at(TransportState::Stop, at_time);
     }
 
-    /// Set whether transport should be playing or stopped.
+    /// Set the transport state at the specified time.
     ///
-    /// This is part of the start/stop sync feature. The change takes effect at
-    /// the specified time.
+    /// This is part of the transport sync feature. Enable it via
+    /// [`Link::enable_transport_sync`] to share state with peers. The change
+    /// takes effect at the specified time.
     ///
-    /// This is useful when the playing state comes from a variable.
-    /// For static play/stop, prefer [`play`](Self::play) and
-    /// [`stop`](Self::stop) for readability.
+    /// This is useful when the transport state comes from a variable.
+    /// For static start/stop, prefer [`start_transport_at`](Self::start_transport_at)
+    /// and [`stop_transport_at`](Self::stop_transport_at) for readability.
+    ///
+    /// Changes are local to this snapshot until committed with
+    /// [`Link::commit_app_session_state`] or [`AudioLink::commit_session_state`].
     ///
     /// # Arguments
     ///
-    /// * `playing` - `true` to start transport, `false` to stop.
+    /// * `state` - The desired transport state.
     /// * `at_time` - The time at which the change takes effect.
-    pub fn set_playing(&mut self, playing: bool, at_time: LinkTime) {
+    pub fn set_transport_state_at(&mut self, state: TransportState, at_time: LinkTime) {
         // Safety: handle is valid (checked in new()).
-        unsafe { sys::abl_link_set_is_playing(self.handle, playing, at_time.as_u64()) }
+        unsafe { sys::abl_link_set_is_playing(self.handle, state.into(), at_time.as_u64()) }
     }
 
-    /// Get the time at which the transport start/stop state last changed.
+    /// Get the time associated with the current transport state.
     ///
-    /// # Returns
+    /// Use this in combination with [`transport_state`](Self::transport_state)
+    /// to determine whether the transport state is currently active or scheduled:
     ///
-    /// The [`LinkTime`] at which the transport state change occurs.
+    /// - **Time in the past** (< `clock_now()`): The state from `transport_state()`
+    ///   is currently in effect.
+    /// - **Time in the future** (> `clock_now()`): The state from `transport_state()`
+    ///   is scheduled to take effect at this time.
+    ///
+    /// The meaning of this time also depends on whether the transport state has
+    /// been modified in this session state snapshot:
+    ///
+    /// - **Before any local modifications**: This is the time at which the
+    ///   current transport state (playing or stopped) took effect or is
+    ///   scheduled to take effect.
+    ///
+    /// - **After calling [`set_transport_state_at`] (or [`start_transport_at`]/
+    ///   [`stop_transport_at`])**: This returns the `at_time` you provided.
+    ///
+    /// If no transport state has ever been set, returns a time of 0.
+    ///
+    /// [`set_transport_state_at`]: Self::set_transport_state_at
+    /// [`start_transport_at`]: Self::start_transport_at
+    /// [`stop_transport_at`]: Self::stop_transport_at
     #[must_use]
-    pub fn time_for_is_playing(&self) -> LinkTime {
+    pub fn transport_state_time(&self) -> LinkTime {
         // Safety: handle is valid (checked in new()).
         LinkTime(unsafe { sys::abl_link_time_for_is_playing(self.handle) }.cast_signed())
     }
 
-    /// Request to map the given beat to the time when transport starts playing.
+    /// Request to map the given beat to the transport state time.
     ///
-    /// This is a convenience function for quantized launch scenarios. It maps
-    /// the given beat to the transport start time. If transport is not playing
-    /// (`is_playing` is `false`), this function is a no-op.
+    /// This calls [`request_beat_at_time`](Self::request_beat_at_time) with
+    /// the time from [`transport_state_time`](Self::transport_state_time).
+    ///
+    /// This is useful for quantized launch scenarios where you want the beat
+    /// at the transport start time to be a specific value (e.g., 0.0 for the
+    /// beginning of a song).
+    ///
+    /// **Note:** This is a no-op if transport is stopped
+    /// ([`transport_state`](Self::transport_state) returns [`TransportState::Stop`]).
+    ///
+    /// Changes are local to this snapshot until committed with
+    /// [`Link::commit_app_session_state`] or [`AudioLink::commit_session_state`].
     ///
     /// # Arguments
     ///
-    /// * `beat` - The beat to map to the start time.
+    /// * `beat` - The beat to map to the transport state time.
     /// * `quantum` - The quantum (beats per cycle/bar).
-    pub fn request_beat_at_start_playing_time(&mut self, beat: f64, quantum: f64) {
+    pub fn request_beat_at_transport_state_time(&mut self, beat: f64, quantum: f64) {
         // Safety: handle is valid (checked in new()).
         unsafe { sys::abl_link_request_beat_at_start_playing_time(self.handle, beat, quantum) }
     }
 
-    /// Set transport state and request a beat mapping in one operation.
+    /// Start transport and request a beat mapping in one operation.
     ///
-    /// This is a convenience function that combines [`set_playing`] and
-    /// [`request_beat_at_time`]. It starts or stops transport at the given
-    /// time and attempts to map the given beat to that time.
+    /// This is equivalent to calling [`start_transport_at`] followed by
+    /// [`request_beat_at_transport_state_time`]. It starts transport at the
+    /// given time and maps the given beat to that time.
+    ///
+    /// Changes are local to this snapshot until committed with
+    /// [`Link::commit_app_session_state`] or [`AudioLink::commit_session_state`].
     ///
     /// # Arguments
     ///
-    /// * `playing` - `true` to start transport, `false` to stop.
-    /// * `at_time` - The time at which the change takes effect.
-    /// * `beat` - The beat to map to the given time.
+    /// * `at_time` - The time at which transport starts.
+    /// * `beat` - The beat to map to the start time.
     /// * `quantum` - The quantum (beats per cycle/bar).
     ///
-    /// [`set_playing`]: Self::set_playing
-    /// [`request_beat_at_time`]: Self::request_beat_at_time
-    pub fn set_playing_and_request_beat_at_time(
+    /// [`start_transport_at`]: Self::start_transport_at
+    /// [`request_beat_at_transport_state_time`]: Self::request_beat_at_transport_state_time
+    pub fn start_transport_and_request_beat_at(
         &mut self,
-        playing: bool,
         at_time: LinkTime,
         beat: f64,
         quantum: f64,
@@ -1405,7 +1747,7 @@ impl SessionState {
         unsafe {
             sys::abl_link_set_is_playing_and_request_beat_at_time(
                 self.handle,
-                playing,
+                true,
                 at_time.as_u64(),
                 beat,
                 quantum,

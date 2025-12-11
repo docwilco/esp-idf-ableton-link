@@ -114,10 +114,34 @@ let tempo = state.tempo();
 log::info!("Current tempo: {} BPM", tempo);
 
 // Get the current beat position
-let now = link.clock_micros();
+let now = link.clock_now();
 let beat = state.beat_at_time(now, 4.0); // 4 beats per bar
 log::info!("Current beat: {}", beat);
 ```
+
+## Application vs Audio Thread Session State
+
+Link provides two sets of session state functions for different contexts:
+
+- **Application thread functions** ([`Link::capture_app_session_state`],
+  [`Link::commit_app_session_state`]): For use from general application
+  code. These may briefly block to synchronize with the audio thread.
+
+- **Audio thread functions** ([`AudioLink::capture_session_state`],
+  [`AudioLink::commit_session_state`]): For use from realtime audio
+  callbacks. These are lock-free and will never block, making them safe
+  for low-latency audio processing.
+
+If your application has a dedicated audio thread with realtime constraints,
+use [`Link::bind_audio_thread`] to obtain an [`AudioLink`] handle and use
+its methods exclusively from that thread. For simpler applications without
+strict realtime requirements, the application thread functions are
+sufficient.
+
+The Link library recommends avoiding concurrent session state modifications
+from both application and audio threads. This crate enforces that
+recommendation: the [`AudioLink`] handle mutably borrows the [`Link`]
+instance, preventing concurrent access at compile time.
 
 ## License
 
