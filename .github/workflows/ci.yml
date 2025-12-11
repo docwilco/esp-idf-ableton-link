@@ -7,6 +7,16 @@ on:
     branches: [main]
 
 jobs:
+  fmt:
+    name: Check formatting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check formatting
+        run: cargo fmt --check
+
   readme-check:
     name: Check README is up to date
     runs-on: ubuntu-latest
@@ -22,9 +32,9 @@ jobs:
 
       - name: Check README is up to date
         run: |
-          cargo readme --no-indent-headings --no-license -o README.md.new
+          cargo readme -o README.md.new
           if ! diff -q README.md README.md.new > /dev/null 2>&1; then
-            echo "::error::README.md is out of date. Please run 'cargo readme --no-indent-headings --no-license -o README.md' and commit the result."
+            echo "::error::README.md is out of date. Please run 'cargo readme -o README.md' and commit the result."
             echo ""
             echo "Diff:"
             diff -u README.md README.md.new || true
