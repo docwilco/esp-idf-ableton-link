@@ -4,9 +4,9 @@
 
 Work through these items one by one:
 
-1. [x] **`i64`/`u64` time inconsistency** — Introduced `LinkTime` newtype wrapping `i64` microseconds. Renamed `clock_micros()` to `clock_now()`. All time parameters/returns now use `LinkTime`. Supports `Duration` arithmetic.
+1. [x] **`i64`/`u64` time inconsistency** — Introduced `Instant` newtype wrapping `i64` microseconds. Renamed `clock_micros()` to `clock_now()`. All time parameters/returns now use `Instant`. Supports `Duration` arithmetic.
 
-2. [x] **`set_is_playing` naming** — Added `play()`/`stop()` convenience methods and renamed `set_is_playing()` to `set_playing()`. Also renamed `set_is_playing_and_request_beat_at_time()` to `set_playing_and_request_beat_at_time()`.
+2. [x] **`set_is_playing` naming** — Added `play()`/`stop()` convenience methods and renamed `set_is_playing()` to `set_transport_state_at()`. Also renamed `set_is_playing_and_request_beat_at_time()` to `set_transport_state_and_request_beat_at_time()`.
 
 3. [x] **`SessionState` is `Send` but not `Sync`** — Verified intentional: C API doesn't document thread-safety for concurrent reads, and session state is designed for local/scoped use. Added comment explaining why `Sync` is not implemented.
 

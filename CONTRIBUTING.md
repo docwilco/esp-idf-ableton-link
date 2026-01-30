@@ -31,7 +31,7 @@ This crate aims to provide an ergonomic, safe Rust API for Ableton Link on embed
 
 ### Embedded Performance
 
-- Use `LinkTime` and `LinkDuration` instead of `std::time::Duration` (which uses `u128` internally and is expensive on 32-bit embedded targets)
+- Use this crate's `time::Instant` and `time::Duration` instead of `std::time::Duration` (which uses `u128` internally and is expensive on 32-bit embedded targets)
 - Minimize allocations; prefer stack allocation where possible
 - Avoid unnecessary copies or clones
 - Be mindful of code size and runtime overhead

@@ -1,0 +1,15 @@
+[build]
+target = "xtensa-esp32-espidf"
+
+[target.xtensa-esp32-espidf]
+linker = "ldproxy"
+rustflags = ["--cfg", "espidf_time64"]
+
+[env]
+MCU = "esp32"
+ESP_IDF_SYS_ROOT_CRATE = "esp-idf-ableton-link"
+ESP_IDF_SDKCONFIG_DEFAULTS = "sdkconfig.defaults.documentation"
+ESP_IDF_TOOLS_INSTALL_DIR = "global"
+
+[unstable]
+build-std = ["std", "panic_abort"]
