@@ -124,20 +124,20 @@
 //!   code. These may briefly block to synchronize with the audio thread.
 //!   They are thread-safe and can be called from multiple threads/tasks.
 //!
-//! - **Audio thread functions** ([`AudioLink::capture_session_state`],
-//!   [`AudioLink::commit_session_state`]): For use from realtime audio
+//! - **Audio thread functions** ([`RealtimeHandle::capture_session_state`],
+//!   [`RealtimeHandle::commit_session_state`]): For use from realtime audio
 //!   callbacks. These are lock-free and will never block, making them safe
 //!   for low-latency audio processing.
 //!
 //! If your application has a dedicated audio thread with realtime constraints,
-//! use [`Link::bind_audio_thread`] to obtain an [`AudioLink`] handle and use
+//! use [`Link::bind_realtime`] to obtain a [`RealtimeHandle`] and use
 //! its methods exclusively from that thread. For simpler applications without
 //! strict realtime requirements, the application thread functions are
 //! sufficient.
 //!
 //! The Link library recommends avoiding concurrent session state modifications
 //! from both application and audio threads. This crate enforces that
-//! recommendation: the [`AudioLink`] handle mutably borrows the [`Link`]
+//! recommendation: the [`RealtimeHandle`] mutably borrows the [`Link`]
 //! instance, preventing concurrent access at compile time.
 //!
 //! # The Timeline
@@ -338,14 +338,35 @@
 //! | [`enable_transport_sync`](Link::enable_transport_sync) | `abl_link_enable_start_stop_sync` | `enableStartStopSync` | "Transport" is more descriptive |
 //! | [`is_transport_sync_enabled`](Link::is_transport_sync_enabled) | `abl_link_is_start_stop_sync_enabled` | `isStartStopSyncEnabled` | |
 //! | [`set_transport_state_callback`](Link::set_transport_state_callback) | `abl_link_set_start_stop_callback` | `setStartStopCallback` | |
-//! | [`Instant`] | `int64_t` / `uint64_t` | `std::chrono::microseconds` | Newtype for type safety and clarity |
+//! | [`Instant`] | `int64_t` | `std::chrono::microseconds` | Newtype for type safety and clarity |
 //! | [`clock_now`](Link::clock_now) | `abl_link_clock_micros` | `clock().micros()` | Returns [`Instant`] |
+//! | [`RealtimeHandle`] | N/A | N/A | Rust abstraction for audio-thread access (not upstream's `LinkAudio`) |
+//! | [`bind_realtime`](Link::bind_realtime) | N/A | N/A | Creates a [`RealtimeHandle`] |
 //!
 //! The C API uses "is playing" terminology because transport state is
 //! represented as a boolean. We chose [`TransportState`] with explicit
 //! [`Play`](TransportState::Play)/[`Stop`](TransportState::Stop) variants for
 //! clarity, since the state can be either currently active or scheduled for the
 //! future (see [The Transport State Model](#the-transport-state-model)).
+//!
+//! # Migrating from 0.1
+//!
+//! Version 0.2 wraps Ableton Link 4.0 (up from 3.1.5) and includes two
+//! breaking renames. All method signatures and behavior are unchanged — this
+//! is a find-and-replace migration:
+//!
+//! | 0.1 | 0.2 | Notes |
+//! |-----|-----|-------|
+//! | `AudioLink` | [`RealtimeHandle`] | Avoids confusion with upstream Link 4.0's `LinkAudio` |
+//! | `Link::bind_audio_thread()` | [`Link::bind_realtime()`](Link::bind_realtime) | Matches the type rename |
+//!
+//! ```ignore
+//! // Before (0.1):
+//! let rt: AudioLink = link.bind_audio_thread();
+//!
+//! // After (0.2):
+//! let rt: RealtimeHandle = link.bind_realtime();
+//! ```
 
 use std::{ffi::c_void, marker::PhantomData, sync::Mutex};
 
@@ -433,7 +454,7 @@ extern "C" fn trampoline<T>(value: T, context: *mut c_void) {
 ///
 /// `Link` is both `Send` and `Sync`. All underlying C++ methods use internal
 /// synchronization. For realtime audio contexts, use
-/// [`bind_audio_thread`](Self::bind_audio_thread) to obtain an [`AudioLink`]
+/// [`bind_realtime`](Self::bind_realtime) to obtain a [`RealtimeHandle`]
 /// handle with non-blocking methods.
 ///
 /// # Example
@@ -683,8 +704,8 @@ impl Link {
     ///
     /// # Note
     ///
-    /// This method takes `&mut self` to prevent calling it while an
-    /// [`AudioLink`] handle exists. The Link library recommends against
+    /// This method takes `&mut self` to prevent calling it while a
+    /// [`RealtimeHandle`] exists. The Link library recommends against
     /// modifying session state from both audio and application threads
     /// concurrently.
     ///
@@ -950,14 +971,14 @@ impl Link {
         Instant::from_micros(unsafe { sys::abl_link_clock_micros(self.handle) })
     }
 
-    /// Bind this Link instance for audio-thread access.
+    /// Bind this Link instance for realtime audio-thread access.
     ///
-    /// Returns an [`AudioLink`] handle that provides realtime-safe
+    /// Returns a [`RealtimeHandle`] that provides realtime-safe
     /// (non-blocking) methods for capturing and committing session state.
     /// The handle is bound to the current thread and cannot be sent to other
     /// threads.
     ///
-    /// While the `AudioLink` handle exists, this `Link` instance is mutably
+    /// While the `RealtimeHandle` exists, this `Link` instance is mutably
     /// borrowed, preventing concurrent access to app-thread session state
     /// methods.
     ///
@@ -970,15 +991,15 @@ impl Link {
     /// link.enable();
     ///
     /// // Bind to the audio thread
-    /// let audio_link = link.bind_audio_thread();
+    /// let rt = link.bind_realtime();
     ///
     /// // Use realtime-safe methods
-    /// let state = audio_link.capture_session_state().unwrap();
-    /// let now = audio_link.clock_now();
+    /// let state = rt.capture_session_state().unwrap();
+    /// let now = rt.clock_now();
     /// let beat = state.beat_at_time(now, 4.0);
     /// ```
-    pub fn bind_audio_thread(&mut self) -> AudioLink<'_> {
-        AudioLink {
+    pub fn bind_realtime(&mut self) -> RealtimeHandle<'_> {
+        RealtimeHandle {
             link: self,
             _not_send_sync: PhantomData,
         }
@@ -1003,21 +1024,21 @@ impl Drop for Link {
 /// committing session state. It is designed for use in audio callbacks or
 /// high-priority tasks where blocking is not acceptable.
 ///
-/// `AudioLink` also exposes a subset of [`Link`] methods that are realtime-safe,
+/// `RealtimeHandle` also exposes a subset of [`Link`] methods that are realtime-safe,
 /// such as [`clock_now`](Self::clock_now), [`is_enabled`](Self::is_enabled),
 /// and [`num_peers`](Self::num_peers). This allows audio code to access these
 /// methods without needing a separate reference to the [`Link`] instance.
 ///
 /// # Thread Safety
 ///
-/// `AudioLink` is `!Send` and `!Sync`, meaning it cannot be sent to or shared
+/// `RealtimeHandle` is `!Send` and `!Sync`, meaning it cannot be sent to or shared
 /// with other threads. This ensures that the audio session state functions are
 /// only called from the thread that created the handle, as required by the
 /// underlying Link library.
 ///
 /// # Exclusivity
 ///
-/// While an `AudioLink` handle exists, the parent [`Link`] instance is mutably
+/// While a `RealtimeHandle` exists, the parent [`Link`] instance is mutably
 /// borrowed, preventing concurrent access to app-thread session state methods.
 /// This matches the Link library's recommendation to avoid modifying session
 /// state from both audio and application threads concurrently.
@@ -1031,21 +1052,21 @@ impl Drop for Link {
 /// link.enable();
 ///
 /// // In your audio thread setup:
-/// let audio_link = link.bind_audio_thread();
+/// let rt = link.bind_realtime();
 ///
 /// // In the audio callback (same thread):
-/// let state = audio_link.capture_session_state().unwrap();
-/// let now = audio_link.clock_now();
+/// let state = rt.capture_session_state().unwrap();
+/// let now = rt.clock_now();
 /// let beat = state.beat_at_time(now, 4.0);
 /// // ... generate audio based on beat position ...
 /// ```
-pub struct AudioLink<'a> {
+pub struct RealtimeHandle<'a> {
     link: &'a mut Link,
     // PhantomData<*mut ()> makes this type !Send and !Sync
     _not_send_sync: PhantomData<*mut ()>,
 }
 
-impl AudioLink<'_> {
+impl RealtimeHandle<'_> {
     delegate! {
         to self.link {
             /// See [`Link::clock_now`]. This method is realtime-safe.
@@ -1093,7 +1114,7 @@ impl AudioLink<'_> {
             return Err(LinkError::AllocationFailed);
         }
 
-        // Safety: Both handles are valid. AudioLink's !Send guarantee ensures
+        // Safety: Both handles are valid. RealtimeHandle's !Send guarantee ensures
         // we're on the designated audio thread.
         unsafe { sys::abl_link_capture_audio_session_state(self.link.handle, session_state) };
 
@@ -1106,7 +1127,7 @@ impl AudioLink<'_> {
     /// context. The given session state will replace the current Link session
     /// state, and modifications will be communicated to other peers.
     pub fn commit_session_state(&self, state: &SessionState) {
-        // Safety: Both handles are valid. AudioLink's !Send guarantee ensures
+        // Safety: Both handles are valid. RealtimeHandle's !Send guarantee ensures
         // we're on the designated audio thread.
         unsafe { sys::abl_link_commit_audio_session_state(self.link.handle, state.handle) }
     }

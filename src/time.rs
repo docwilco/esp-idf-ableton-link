@@ -77,16 +77,6 @@ impl Instant {
         self.0
     }
 
-    /// Get the time value as an unsigned 64-bit integer (microseconds).
-    ///
-    /// This performs a bit-preserving cast. Link's clock is based on
-    /// `steady_clock` which always returns non-negative values, so this
-    /// is safe for normal use.
-    #[must_use]
-    pub(crate) const fn as_u64(self) -> u64 {
-        self.0.cast_unsigned()
-    }
-
     /// Add microseconds to this time.
     #[must_use]
     pub const fn add_micros(self, micros: i64) -> Self {

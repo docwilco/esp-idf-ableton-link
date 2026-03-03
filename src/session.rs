@@ -20,14 +20,14 @@ mod sys {
 /// # Usage
 ///
 /// 1. Capture a session state with [`Link::capture_app_session_state`](crate::Link::capture_app_session_state)
-///    or [`AudioLink::capture_session_state`](crate::AudioLink::capture_session_state)
+///    or [`RealtimeHandle::capture_session_state`](crate::RealtimeHandle::capture_session_state)
 /// 2. Read values using [`tempo`](Self::tempo),
 ///    [`beat_at_time`](Self::beat_at_time), [`transport_state`](Self::transport_state), etc.
 /// 3. Optionally modify using [`set_tempo`](Self::set_tempo),
 ///    [`request_beat_at_time`](Self::request_beat_at_time),
 ///    [`set_transport_state_at`](Self::set_transport_state_at), etc.
 /// 4. Commit changes with [`Link::commit_app_session_state`](crate::Link::commit_app_session_state)
-///    or [`AudioLink::commit_session_state`](crate::AudioLink::commit_session_state)
+///    or [`RealtimeHandle::commit_session_state`](crate::RealtimeHandle::commit_session_state)
 ///
 /// # Important
 ///
@@ -76,7 +76,7 @@ impl SessionState {
     ///
     /// Changes are local to this snapshot until committed with
     /// [`Link::commit_app_session_state`](crate::Link::commit_app_session_state) or
-    /// [`AudioLink::commit_session_state`](crate::AudioLink::commit_session_state).
+    /// [`RealtimeHandle::commit_session_state`](crate::RealtimeHandle::commit_session_state).
     ///
     /// # Arguments
     ///
@@ -181,7 +181,7 @@ impl SessionState {
     ///
     /// Changes are local to this snapshot until committed with
     /// [`Link::commit_app_session_state`](crate::Link::commit_app_session_state) or
-    /// [`AudioLink::commit_session_state`](crate::AudioLink::commit_session_state).
+    /// [`RealtimeHandle::commit_session_state`](crate::RealtimeHandle::commit_session_state).
     pub fn request_beat_at_time(&mut self, beat: f64, time: Instant, quantum: f64) {
         // Safety: handle is valid (checked in new()).
         unsafe {
@@ -214,7 +214,7 @@ impl SessionState {
     ///
     /// Changes are local to this snapshot until committed with
     /// [`Link::commit_app_session_state`](crate::Link::commit_app_session_state) or
-    /// [`AudioLink::commit_session_state`](crate::AudioLink::commit_session_state).
+    /// [`RealtimeHandle::commit_session_state`](crate::RealtimeHandle::commit_session_state).
     ///
     /// # Arguments
     ///
@@ -224,7 +224,7 @@ impl SessionState {
     pub fn force_beat_at_time(&mut self, beat: f64, time: Instant, quantum: f64) {
         // Safety: handle is valid (checked in new()).
         unsafe {
-            sys::abl_link_force_beat_at_time(self.handle, beat, time.as_u64(), quantum);
+            sys::abl_link_force_beat_at_time(self.handle, beat, time.as_micros(), quantum);
         }
     }
 
@@ -255,7 +255,7 @@ impl SessionState {
     ///
     /// Changes are local to this snapshot until committed with
     /// [`Link::commit_app_session_state`](crate::Link::commit_app_session_state) or
-    /// [`AudioLink::commit_session_state`](crate::AudioLink::commit_session_state).
+    /// [`RealtimeHandle::commit_session_state`](crate::RealtimeHandle::commit_session_state).
     ///
     /// # Arguments
     ///
@@ -271,7 +271,7 @@ impl SessionState {
     ///
     /// Changes are local to this snapshot until committed with
     /// [`Link::commit_app_session_state`](crate::Link::commit_app_session_state) or
-    /// [`AudioLink::commit_session_state`](crate::AudioLink::commit_session_state).
+    /// [`RealtimeHandle::commit_session_state`](crate::RealtimeHandle::commit_session_state).
     ///
     /// # Arguments
     ///
@@ -292,7 +292,7 @@ impl SessionState {
     ///
     /// Changes are local to this snapshot until committed with
     /// [`Link::commit_app_session_state`](crate::Link::commit_app_session_state) or
-    /// [`AudioLink::commit_session_state`](crate::AudioLink::commit_session_state).
+    /// [`RealtimeHandle::commit_session_state`](crate::RealtimeHandle::commit_session_state).
     ///
     /// # Arguments
     ///
@@ -300,7 +300,7 @@ impl SessionState {
     /// * `time` - The time at which the change takes effect.
     pub fn set_transport_state_at(&mut self, state: TransportState, time: Instant) {
         // Safety: handle is valid (checked in new()).
-        unsafe { sys::abl_link_set_is_playing(self.handle, state.into(), time.as_u64()) }
+        unsafe { sys::abl_link_set_is_playing(self.handle, state.into(), time.as_micros()) }
     }
 
     /// Get the time associated with the current transport state.
@@ -331,9 +331,7 @@ impl SessionState {
     #[must_use]
     pub fn transport_state_time(&self) -> Instant {
         // Safety: handle is valid (checked in new()).
-        Instant::from_micros(
-            unsafe { sys::abl_link_time_for_is_playing(self.handle) }.cast_signed(),
-        )
+        Instant::from_micros(unsafe { sys::abl_link_time_for_is_playing(self.handle) })
     }
 
     /// Request to map the given beat to the transport state time.
@@ -350,7 +348,7 @@ impl SessionState {
     ///
     /// Changes are local to this snapshot until committed with
     /// [`Link::commit_app_session_state`](crate::Link::commit_app_session_state) or
-    /// [`AudioLink::commit_session_state`](crate::AudioLink::commit_session_state).
+    /// [`RealtimeHandle::commit_session_state`](crate::RealtimeHandle::commit_session_state).
     ///
     /// # Arguments
     ///
@@ -369,7 +367,7 @@ impl SessionState {
     ///
     /// Changes are local to this snapshot until committed with
     /// [`Link::commit_app_session_state`](crate::Link::commit_app_session_state) or
-    /// [`AudioLink::commit_session_state`](crate::AudioLink::commit_session_state).
+    /// [`RealtimeHandle::commit_session_state`](crate::RealtimeHandle::commit_session_state).
     ///
     /// # Arguments
     ///
@@ -385,7 +383,7 @@ impl SessionState {
             sys::abl_link_set_is_playing_and_request_beat_at_time(
                 self.handle,
                 true,
-                time.as_u64(),
+                time.as_micros(),
                 beat,
                 quantum,
             );
