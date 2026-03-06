@@ -5,7 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.0-beta.1] - 2025-03-03
+## [0.2.0-beta2] - 2026-03-06
+
+### Changed
+
+- Wraps Ableton Link 4.0.0-beta.2 (was 4.0.0-beta.1).
+  - Discovery now works across subnets.
+  - ESP-IDF 6.0 compatibility.
+- Now correctly lists supported targets. Added supports RISC-V targets: ESP32-C5, ESP32-C6, ESP32-C61, ESP32-H2, ESP32-P4. Removed ESP32-S2.
+
+## [0.2.0-beta1] - 2025-03-03
 
 ### Changed
 
@@ -32,5 +41,6 @@ Initial release wrapping Ableton Link 3.1.5 via ESP-IDF component
 - Transport state synchronization with `TransportState` enum
 - Callbacks for peer count, tempo, and transport state changes
 
-[0.2.0-beta.1]: https://github.com/docwilco/esp-idf-ableton-link/compare/v0.1.0...v0.2.0-beta.1
+[0.2.0-beta2]: https://github.com/docwilco/esp-idf-ableton-link/compare/v0.2.0-beta.1...v0.2.0-beta2
+[0.2.0-beta1]: https://github.com/docwilco/esp-idf-ableton-link/compare/v0.1.0...v0.2.0-beta1
 [0.1.0]: https://github.com/docwilco/esp-idf-ableton-link/releases/tag/v0.1.0
