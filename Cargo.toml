@@ -1,6 +1,6 @@
 [package]
 name = "esp-idf-ableton-link"
-version = "0.2.1-beta.2+link.4.0.0-beta.2"
+version = "0.3.0-beta.2+link.4.0.0-beta.2"
 edition = "2024"
 rust-version = "1.88"
 license = "GPL-2.0-or-later"
@@ -21,7 +21,7 @@ exclude = [
 
 [dependencies]
 delegate = "0.13.5"
-esp-idf-sys = "0.36"
+esp-idf-sys = "0.37.2"
 log = "0.4"
 
 [features]

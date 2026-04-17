@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0-beta.2] - 2026-04-17
+
+### Changed
+
+- **Breaking:** Updated `esp-idf-sys` dependency from 0.36 to 0.37.2.
+
 ## [0.2.1-beta2] - 2026-03-06
 
 ### Changed
@@ -41,6 +47,7 @@ Initial release wrapping Ableton Link 3.1.5 via ESP-IDF component
 - Transport state synchronization with `TransportState` enum
 - Callbacks for peer count, tempo, and transport state changes
 
+[0.3.0-beta.2]: https://github.com/docwilco/esp-idf-ableton-link/compare/v0.2.1-beta2...v0.3.0-beta.2
 [0.2.1-beta2]: https://github.com/docwilco/esp-idf-ableton-link/compare/v0.2.0-beta.1...v0.2.1-beta2
 [0.2.0-beta1]: https://github.com/docwilco/esp-idf-ableton-link/compare/v0.1.0...v0.2.0-beta1
 [0.1.0]: https://github.com/docwilco/esp-idf-ableton-link/releases/tag/v0.1.0
